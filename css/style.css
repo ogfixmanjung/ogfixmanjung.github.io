@@ -471,3 +471,11 @@ legend { color: var(--primary); }
 .mjob-acts { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
 .review-card .btn { background: #fff; }
 .notice .btn { margin-left: 6px; }
+
+/* ---------- pilihan waranti ---------- */
+.w-custom { margin-top: 6px; }
+.w-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-start; margin-top: 8px; }
+.w-form .w-sel { flex: 1 1 160px; margin: 0; }
+.w-form .w-custom { flex: 1 1 120px; margin: 0; }
+.w-form .btn { flex: none; }
+code { background: #f1f1ec; border-radius: 4px; padding: 0 4px; font-size: .92em; }

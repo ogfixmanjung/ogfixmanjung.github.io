@@ -166,7 +166,7 @@
         ${row('Deposit', money(job.deposit))}
         ${row('Dibayar semasa ambil', money(pk.paid))}
         ${row('Cara bayaran', esc(pk.method))}
-        ${pk.warrantyDays ? row('Waranti', `${esc(pk.warrantyDays)} hari (sehingga ${warrantyUntil})`) : ''}
+        ${pk.warrantyDays ? row('Waranti', `${esc(pk.warrantyLabel || pk.warrantyDays + ' hari')} (sehingga ${warrantyUntil})`) : row('Waranti', 'Tiada waranti')}
         ${pk.note ? row('Nota', esc(pk.note)) : ''}
         ${!isPublic && pk.verified ? row('Pengesahan', esc(pk.verified)) : ''}
         ${
@@ -273,6 +273,7 @@
           paid: job.pickup.paid,
           method: job.pickup.method,
           warrantyDays: job.pickup.warrantyDays,
+          warrantyLabel: job.pickup.warrantyLabel || '',
           note: job.pickup.note,
           signed: !!job.pickup.signOut,
         }

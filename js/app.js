@@ -25,6 +25,7 @@
     address: '',
     prefix: 'OGF',
     warrantyDays: 30,
+    warrantyOptions: 'Tiada waranti = 0\n2 minggu = 14\n1 bulan = 30\n2 bulan = 60\n3 bulan = 90',
     remindDays: 3,
     pics: ['Acap', 'Azim', 'Hakim', 'Haziq', 'Iqbal'],
     slogan: 'Your device lifesaver',
@@ -204,6 +205,56 @@
       ${wTxt ? `<div class="small">${wTxt}</div>` : ''}
       ${buttons || ''}
     </li>`;
+  }
+
+  /* ---------- pilihan tempoh waranti ---------- */
+  function warrantyOpts() {
+    const out = String(settings.warrantyOptions || DEFAULT_SETTINGS.warrantyOptions)
+      .split('\n')
+      .map((l) => l.split('='))
+      .filter((x) => x.length === 2 && x[0].trim() && !isNaN(parseInt(x[1], 10)))
+      .map(([l, d]) => ({ label: l.trim(), days: parseInt(d, 10) }));
+    return out.length ? out : [{ label: 'Tiada waranti', days: 0 }];
+  }
+
+  function warrantyText(days, label) {
+    days = Number(days || 0);
+    if (!days) return 'Tiada waranti';
+    return label || `${days} hari`;
+  }
+
+  /* Kawalan pilih waranti: select + (Lain-lain) input hari */
+  function warrantyField(name, days) {
+    const opts = warrantyOpts();
+    const d = days === '' || days == null ? null : Number(days);
+    const match = d == null ? null : opts.find((o) => o.days === d);
+    const custom = d != null && !match;
+    return `<select name="${name}Sel" class="w-sel">${opts
+      .map((o) => `<option value="${o.days}" ${match && match.days === o.days ? 'selected' : ''}>${esc(o.label)}</option>`)
+      .join('')}<option value="custom" ${custom ? 'selected' : ''}>Lain-lain (taip hari)…</option></select>
+      <input name="${name}Custom" class="w-custom" type="number" min="0" step="1" inputmode="numeric" placeholder="Bilangan hari" value="${custom ? esc(d) : ''}" ${custom ? '' : 'hidden'}>`;
+  }
+
+  function bindWarrantyField(root, name) {
+    const sel = root.querySelector(`[name=${name}Sel]`);
+    const inp = root.querySelector(`[name=${name}Custom]`);
+    sel.addEventListener('change', () => {
+      inp.hidden = sel.value !== 'custom';
+      if (!inp.hidden) inp.focus();
+    });
+  }
+
+  /* Baca nilai: { days, label } atau null jika 'Lain-lain' kosong */
+  function readWarranty(fd, name) {
+    const v = fd.get(name + 'Sel');
+    if (v === 'custom') {
+      const d = num(fd.get(name + 'Custom'));
+      if (d === '') return null;
+      return { days: d, label: d ? `${d} hari` : '' };
+    }
+    const o = warrantyOpts().find((x) => String(x.days) === v);
+    const days = Number(v || 0);
+    return { days, label: days ? (o ? o.label : `${days} hari`) : '' };
   }
 
   /* ---------- tukar status pantas & mesej WhatsApp ---------- */
@@ -1297,6 +1348,17 @@
           </div>`
           }
 
+          ${
+            job.status === 'diambil' && job.pickup
+              ? `<div class="card"><h3>🛡 Waranti</h3>
+            <p class="small">${esc(warrantyText(job.pickup.warrantyDays, job.pickup.warrantyLabel))}${
+                  warrantyUntil(job) ? ` · sehingga ${fmtDate(warrantyUntil(job).toISOString(), false)} ${warrantyActive(job) ? '<span class="w-ok">(aktif)</span>' : '<span class="muted">(tamat)</span>'}` : ''
+                }</p>
+            <details><summary class="small">Ubah tempoh waranti</summary>
+              <form id="wForm" class="w-form">${warrantyField('w', job.pickup.warrantyDays || 0)}<button class="btn small primary" type="submit">Simpan</button></form>
+            </details></div>`
+              : ''
+          }
           ${reviewCard(job)}
           <div id="histBox"></div>
           <div class="card">
@@ -1309,6 +1371,28 @@
         </div>
         <div class="main"><div id="receiptBox">${renderReceipt(job, settings)}</div>${renderLog(job)}</div>
       </div>`;
+
+    // Ubah tempoh waranti selepas serahan
+    if ($('#wForm')) {
+      bindWarrantyField($('#wForm'), 'w');
+      $('#wForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const war = readWarranty(new FormData(e.target), 'w');
+        if (!war) return toast('Isi bilangan hari');
+        const before = warrantyText(job.pickup.warrantyDays, job.pickup.warrantyLabel);
+        const after = warrantyText(war.days, war.label);
+        if (before === after) return toast('Tiada perubahan');
+        job.pickup = Object.assign({}, job.pickup, { warrantyDays: war.days || '', warrantyLabel: war.label });
+        job.updatedAt = new Date().toISOString();
+        addLog(job, 'edit', [{ f: 'Waranti', from: before, to: after }]);
+        try {
+          savedToast(await saveJob(job), 'Waranti dikemaskini');
+        } catch (err) {
+          return alert('Gagal simpan: ' + errMsg(err));
+        }
+        route();
+      });
+    }
 
     // Minta review Google
     $$('.review-btn').forEach((b) =>
@@ -1486,7 +1570,7 @@
         </div>
         <div class="grid3">
           <label>Cara bayaran<select name="method">${PAY_METHODS.map((m) => `<option>${m}</option>`).join('')}</select></label>
-          <label>Waranti (hari)<input name="warrantyDays" type="number" min="0" step="1" value="${esc(settings.warrantyDays || '')}"></label>
+          <label>🛡 Waranti${warrantyField('warranty', settings.warrantyDays === '' ? 0 : settings.warrantyDays)}</label>
           <label>Diambil oleh<input name="by" value="${esc(job.customer.name)}"></label>
         </div>
         <label>Nota (kerja yang dibuat, part ditukar, dll)<textarea name="note" rows="2"></textarea></label>
@@ -1548,10 +1632,14 @@
       });
     }
 
+    bindWarrantyField($('#pkForm'), 'warranty');
+
     $('#pkForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       const fd = new FormData(e.target);
       const errors = [];
+      const war = readWarranty(fd, 'warranty');
+      if (!war) errors.push('Bilangan hari waranti');
       let verified = '';
       if (job.pickupCode) {
         if (fd.get('noCode')) {
@@ -1576,7 +1664,8 @@
         finalPrice: num(fd.get('finalPrice')),
         paid: num(fd.get('paid')),
         method: fd.get('method'),
-        warrantyDays: num(fd.get('warrantyDays')),
+        warrantyDays: war ? war.days || '' : '',
+        warrantyLabel: war ? war.label : '',
         by: fd.get('by').trim(),
         note: fd.get('note').trim(),
         signOut: pad.toDataURL(),
@@ -1587,7 +1676,7 @@
         { f: 'Harga akhir', from: '', to: fmtVal(job.pickup.finalPrice, 'money') },
         { f: 'Dibayar', from: '', to: fmtVal(job.pickup.paid, 'money') + ' (' + job.pickup.method + ')' },
       ];
-      if (job.pickup.warrantyDays) changes.push({ f: 'Waranti', from: '', to: job.pickup.warrantyDays + ' hari' });
+      changes.push({ f: 'Waranti', from: '', to: warrantyText(job.pickup.warrantyDays, job.pickup.warrantyLabel) });
       if (verified) changes.push({ f: 'Pengesahan', from: '', to: verified });
       if (job.device && job.device.passcode) {
         // Passcode tidak diperlukan lagi selepas device diserahkan – padam untuk privasi pelanggan
@@ -2093,6 +2182,10 @@
             <label>Waranti lalai (hari)<input name="warrantyDays" type="number" min="0" value="${esc(settings.warrantyDays)}"></label>
           </div>
           <div class="grid2">
+            <label>Pilihan tempoh waranti (satu baris: <code>Nama = hari</code>)<textarea name="warrantyOptions" rows="6">${esc(settings.warrantyOptions)}</textarea></label>
+            <p class="small muted" style="align-self:end">Contoh: <code>2 minggu = 14</code>, <code>3 bulan = 90</code>. Staff pilih tempoh ini semasa serahan. Pilihan "Lain-lain" sentiasa ada untuk taip bilangan hari sendiri.</p>
+          </div>
+          <div class="grid2">
             <label>Peringatan "belum diambil" selepas (hari)<input name="remindDays" type="number" min="1" value="${esc(settings.remindDays)}"></label>
             <label>Device dianggap terbiar selepas (hari)<input name="abandonDays" type="number" min="1" value="${esc(settings.abandonDays)}"></label>
           </div>
@@ -2180,6 +2273,7 @@
         address: fd.get('address').trim(),
         prefix: (fd.get('prefix').trim() || 'OGF').toUpperCase().replace(/[^A-Z0-9]/g, '') || 'OGF',
         warrantyDays: num(fd.get('warrantyDays')),
+        warrantyOptions: fd.get('warrantyOptions').trim() || DEFAULT_SETTINGS.warrantyOptions,
         remindDays: num(fd.get('remindDays')) || 3,
         abandonDays: num(fd.get('abandonDays')) || 30,
         terms: fd.get('terms').trim(),
@@ -2365,7 +2459,7 @@
   /* ---------------- start ---------------- */
   /* ---------- semakan versi: pastikan semua telefon guna versi terbaru ----------
      Bila kemaskini app: naikkan APP_VERSION, version.json dan ?v= dalam index.html/resit.html */
-  const APP_VERSION = '15';
+  const APP_VERSION = '16';
 
   async function latestVersion() {
     try {
