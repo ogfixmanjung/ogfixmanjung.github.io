@@ -28,6 +28,9 @@
     remindDays: 3,
     pics: ['Acap', 'Azim', 'Hakim', 'Haziq', 'Iqbal'],
     slogan: 'Your device lifesaver',
+    reviewLink: '',
+    reviewMsg:
+      'Terima kasih kerana memilih {kedai}! 🙏\n\nKalau berpuas hati dengan servis kami, sudi tak luangkan 1 minit untuk beri review di Google? Ia sangat membantu kedai kecil macam kami:\n{link}',
     abandonDays: 30,
     terms: DEFAULT_TERMS,
   };
@@ -141,6 +144,7 @@
     pulih: 'Dipulihkan dari backup',
     peringatan: 'Peringatan dihantar',
     resit: 'Link resit / kod ambil dijana',
+    review: 'Review Google diminta',
   };
 
   function renderLog(job) {
@@ -163,6 +167,89 @@
       : '<li class="muted small">Tiada log. Rekod ini dicipta sebelum log perubahan diaktifkan.</li>';
     return `<details class="card log-card"><summary><h3>Log Perubahan (${log.length})</h3></summary><ul class="log">${body}</ul>
       <p class="small muted">Log tidak boleh dipadam atau diubah oleh staff.</p></details>`;
+  }
+
+  /* ---------- pelanggan lama & waranti ---------- */
+  function normPhone(p) {
+    let d = String(p || '').replace(/\D/g, '');
+    if (d.startsWith('60')) d = '0' + d.slice(2);
+    else if (d.startsWith('1')) d = '0' + d;
+    return d;
+  }
+
+  function warrantyUntil(job) {
+    if (!job.pickup || !job.pickup.warrantyDays) return null;
+    return new Date(new Date(job.pickup.at).getTime() + Number(job.pickup.warrantyDays) * 864e5);
+  }
+
+  function warrantyActive(job) {
+    const w = warrantyUntil(job);
+    return !!w && w.getTime() >= Date.now();
+  }
+
+  function customerJobs(jobs, phone, excludeId) {
+    const p = normPhone(phone);
+    if (p.length < 9) return [];
+    return jobs
+      .filter((j) => j.id !== excludeId && normPhone(j.customer && j.customer.phone) === p)
+      .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+  }
+
+  function historyItem(j, buttons) {
+    const w = warrantyUntil(j);
+    const wTxt = w ? (warrantyActive(j) ? `<span class="w-ok">🛡 Waranti aktif sehingga ${fmtDate(w.toISOString(), false)}</span>` : `<span class="muted">Waranti tamat ${fmtDate(w.toISOString(), false)}</span>`) : '';
+    return `<li>
+      <div><a href="#/job/${encodeURIComponent(j.id)}"><strong>${esc(j.id)}</strong></a> · ${esc([j.device.brand, j.device.model].filter(Boolean).join(' '))} ${badge(j.status)}</div>
+      <div class="small muted">${fmtDate(j.createdAt, false)} · ${esc(j.problem || '')}${j.pic ? ' · 👤 ' + esc(j.pic) : ''}${j.warrantyOf ? ' · 🛡 claim waranti' : ''}</div>
+      ${wTxt ? `<div class="small">${wTxt}</div>` : ''}
+      ${buttons || ''}
+    </li>`;
+  }
+
+  /* ---------- tukar status pantas & mesej WhatsApp ---------- */
+  function statusWaMsg(job, status, note) {
+    const dev = [job.device.brand, job.device.model].filter(Boolean).join(' ');
+    return (
+      `Salam ${job.customer.name},\n\nKemaskini untuk device anda (${dev}), No. Resit *${job.id}*:\n\n` +
+      `Status: *${R.statusInfo(status).label}*\n` +
+      (note ? `Nota: ${note}\n` : '') +
+      (status === 'siap' || status === 'batal'
+        ? `\nDevice anda sedia untuk diambil. Sila sebut / tunjuk Kod Ambil semasa mengambil.\n${codeLine(job)}`
+        : '') +
+      `\nResit & status terkini:\n${customerLink(job, settings)}\n\n- ${settings.name}`
+    );
+  }
+
+  async function applyStatus(job, status, note) {
+    const now = new Date().toISOString();
+    addLog(job, 'status', [{ f: 'Status', from: R.statusInfo(job.status).label, to: R.statusInfo(status).label }].concat(note ? [{ f: 'Nota', from: '', to: note }] : []));
+    job.status = status;
+    job.updatedAt = now;
+    job.history = (job.history || []).concat([{ status, at: now, note: note || '', by: me() }]);
+    return saveJob(job);
+  }
+
+  /* ---------- minta review Google ---------- */
+  async function askReview(job) {
+    const msg = String(settings.reviewMsg || DEFAULT_SETTINGS.reviewMsg)
+      .replace(/\{kedai\}/g, settings.name)
+      .replace(/\{nama\}/g, job.customer.name)
+      .replace(/\{link\}/g, settings.reviewLink);
+    window.open(`https://wa.me/${waPhone(job.customer.phone)}?text=${encodeURIComponent(msg)}`, '_blank', 'noopener');
+    job.reviewAsked = { at: new Date().toISOString(), by: me() || actor() };
+    job.updatedAt = job.reviewAsked.at;
+    addLog(job, 'review', [{ f: 'Review Google', from: '', to: 'diminta melalui WhatsApp' }]);
+    const res = await saveJob(job);
+    savedToast(res, 'Permintaan review dihantar');
+  }
+
+  function reviewCard(job) {
+    if (job.status !== 'diambil') return '';
+    if (!settings.reviewLink)
+      return `<div class="card"><h3>⭐ Minta review Google</h3><p class="small muted">${canEditSettings() ? 'Isi <a href="#/tetapan">link Google Review di Tetapan</a> untuk guna fungsi ini.' : 'Owner belum isi link Google Review di Tetapan.'}</p></div>`;
+    return `<div class="card review-card"><h3>⭐ Minta review Google</h3>
+      <p class="small muted">${job.reviewAsked ? 'Sudah diminta ' + fmtDate(job.reviewAsked.at) : 'Belum diminta'}</p>
+      <button class="btn block review-btn" data-review="${esc(job.id)}">📲 ${job.reviewAsked ? 'Minta sekali lagi' : 'Minta review via WhatsApp'}</button></div>`;
   }
 
   /* ---------- PIC repair (technician) ---------- */
@@ -449,6 +536,7 @@
       if (parts[0] === 'ambil' && parts[1]) return await viewPickup(decodeURIComponent(parts[1]));
       if (parts[0] === 'tetapan') return await viewSettings();
       if (parts[0] === 'laporan') return await viewReport();
+      if (parts[0] === 'saya') return await viewMine();
       app.innerHTML = '<p>Halaman tidak dijumpai.</p>';
     } catch (err) {
       console.error(err);
@@ -806,6 +894,8 @@
             <label>Nama pelanggan *<input name="name" required value="${esc(j.customer.name)}" autocomplete="off"></label>
             <label>No. telefon (WhatsApp) *<input name="phone" type="tel" required inputmode="tel" placeholder="012-3456789" value="${esc(j.customer.phone)}"></label>
           </div>
+          <div id="warrantyBanner"></div>
+          <div id="custHistory"></div>
         </fieldset>
 
         <fieldset><legend>Maklumat Device</legend>
@@ -889,6 +979,92 @@
       </form>`;
 
     // Kunci skrin: Tiada / PIN / Pattern
+    // ---- Pelanggan lama & claim waranti (borang baru sahaja) ----
+    let warrantyOf = j.warrantyOf || '';
+    let histJobs = [];
+    const fillDevice = (src) => {
+      ['brand', 'model', 'color', 'imei'].forEach((k) => {
+        const el = $(`#form [name=${k}]`);
+        if (el && src.device[k]) el.value = src.device[k];
+      });
+    };
+    const drawBanner = () => {
+      const orig = histJobs.find((x) => x.id === warrantyOf);
+      $('#warrantyBanner').innerHTML = warrantyOf
+        ? `<div class="warranty-banner">🛡 <div><strong>Claim waranti</strong> untuk resit <strong>${esc(warrantyOf)}</strong>${orig && orig.pic ? ` (dibaiki oleh ${esc(orig.pic)})` : ''}</div>${
+            job ? '' : '<button type="button" class="btn small" id="cancelClaim">Batal claim</button>'
+          }</div>`
+        : '';
+      if ($('#cancelClaim'))
+        $('#cancelClaim').addEventListener('click', () => {
+          warrantyOf = '';
+          const pr = $('#form [name=problem]');
+          pr.value = pr.value.replace(/^Claim waranti \([^)]*\):\s*/, '');
+          drawBanner();
+          drawHistory();
+        });
+    };
+    const drawHistory = () => {
+      if (job) return;
+      if (!histJobs.length) {
+        $('#custHistory').innerHTML = '';
+        return;
+      }
+      $('#custHistory').innerHTML = `<div class="cust-hist">
+        <div class="cust-hist-head">👤 <strong>Pelanggan lama</strong> · ${histJobs.length} repair sebelum ini</div>
+        <ul class="hist-list">${histJobs
+          .slice(0, 6)
+          .map((x) =>
+            historyItem(
+              x,
+              `<div class="hist-btns"><button type="button" class="btn small" data-use="${esc(x.id)}">Guna device ini</button>${
+                warrantyActive(x) && x.id !== warrantyOf ? `<button type="button" class="btn small primary" data-claim="${esc(x.id)}">🛡 Claim waranti</button>` : ''
+              }</div>`
+            )
+          )
+          .join('')}</ul></div>`;
+    };
+    if (job && warrantyOf) drawBanner();
+    if (!job) {
+      let ht;
+      const lookup = async () => {
+        try {
+          const all = await DB.allJobs({ full: CLOUD });
+          histJobs = customerJobs(all, $('#form [name=phone]').value);
+        } catch (e) {
+          histJobs = [];
+        }
+        const nameEl = $('#form [name=name]');
+        if (histJobs.length && !nameEl.value.trim()) nameEl.value = histJobs[0].customer.name;
+        drawHistory();
+      };
+      $('#form [name=phone]').addEventListener('input', () => {
+        clearTimeout(ht);
+        ht = setTimeout(lookup, 350);
+      });
+      $('#custHistory').addEventListener('click', (e) => {
+        const use = e.target.closest('[data-use]');
+        const claim = e.target.closest('[data-claim]');
+        const btn = use || claim;
+        if (!btn) return;
+        const src = histJobs.find((x) => x.id === (use ? use.dataset.use : claim.dataset.claim));
+        if (!src) return;
+        fillDevice(src);
+        if (claim) {
+          warrantyOf = src.id;
+          const pr = $('#form [name=problem]');
+          if (!/^Claim waranti/.test(pr.value)) pr.value = `Claim waranti (${src.id}): ` + pr.value;
+          $('#form [name=estimate]').value = 0;
+          $('#form [name=deposit]').value = 0;
+          const picSel = $('#form [name=pic]');
+          if (picSel && !picSel.value && src.pic) picSel.value = src.pic;
+          drawBanner();
+          drawHistory();
+          toast('Claim waranti untuk ' + src.id);
+        } else toast('Maklumat device diisi');
+      });
+    }
+
     const pPad = patternPad($('#patternPad'), R.patternSeq(j.device.passcode), (seq) => showPatternText(seq));
     function showPatternText(seq) {
       $('#patternText').textContent = seq.length
@@ -1011,7 +1187,12 @@
         data.agreed = true;
         data.pickup = null;
         data.pickupCode = await newPickupCode();
-        addLog(data, 'cipta', photos.length ? [{ f: 'Gambar', from: '', to: String(photos.length) }] : []);
+        if (warrantyOf) data.warrantyOf = warrantyOf;
+        addLog(
+          data,
+          'cipta',
+          (photos.length ? [{ f: 'Gambar', from: '', to: String(photos.length) }] : []).concat(warrantyOf ? [{ f: 'Claim waranti', from: '', to: warrantyOf }] : [])
+        );
       }
       let result;
       try {
@@ -1052,6 +1233,13 @@
     const link = customerLink(job, settings);
 
     app.innerHTML = `
+      ${
+        params && params.get('serah')
+          ? `<div class="notice">✔ Serahan direkodkan.${
+              settings.reviewLink ? ` Minta pelanggan beri review Google sekarang? <button class="btn small primary review-btn" data-review="${esc(job.id)}">⭐ Minta review</button>` : ''
+            }</div>`
+          : ''
+      }
       ${
         params && params.get('baru')
           ? `<div class="notice">✅ Device telah direkodkan.${
@@ -1109,6 +1297,8 @@
           </div>`
           }
 
+          ${reviewCard(job)}
+          <div id="histBox"></div>
           <div class="card">
             <h3>Lain-lain</h3>
             <div class="btn-col">
@@ -1119,6 +1309,36 @@
         </div>
         <div class="main"><div id="receiptBox">${renderReceipt(job, settings)}</div>${renderLog(job)}</div>
       </div>`;
+
+    // Minta review Google
+    $$('.review-btn').forEach((b) =>
+      b.addEventListener('click', async () => {
+        b.disabled = true;
+        try {
+          await askReview(job);
+        } catch (err) {
+          alert('Gagal rekod: ' + errMsg(err));
+        }
+        location.hash = '#/job/' + encodeURIComponent(job.id);
+        route();
+      })
+    );
+
+    // Sejarah pelanggan & claim waranti (dimuat selepas halaman dipapar)
+    DB.allJobs({ full: CLOUD })
+      .then((all) => {
+        if (currentView !== 'job' || !$('#histBox')) return;
+        const others = customerJobs(all, job.customer.phone, job.id);
+        const claims = all.filter((x) => x.warrantyOf === job.id);
+        const orig = job.warrantyOf ? all.find((x) => x.id === job.warrantyOf) : null;
+        if (!others.length && !claims.length && !job.warrantyOf) return;
+        $('#histBox').innerHTML = `<div class="card">
+          ${job.warrantyOf ? `<div class="warranty-banner">🛡 <div>Claim waranti untuk <a href="#/job/${encodeURIComponent(job.warrantyOf)}"><strong>${esc(job.warrantyOf)}</strong></a>${orig && orig.pic ? ` · dibaiki oleh ${esc(orig.pic)}` : ''}</div></div>` : ''}
+          ${claims.length ? `<p class="small"><strong>🛡 Claim waranti dibuat:</strong> ${claims.map((c) => `<a href="#/job/${encodeURIComponent(c.id)}">${esc(c.id)}</a>`).join(', ')}</p>` : ''}
+          ${others.length ? `<h3>Sejarah pelanggan (${others.length})</h3><ul class="hist-list">${others.slice(0, 8).map((x) => historyItem(x)).join('')}</ul>` : ''}
+        </div>`;
+      })
+      .catch(() => {});
 
     // Gambar dimuat berasingan (mod cloud) supaya halaman cepat dibuka
     if (Number(job.photoCount || 0) > 0 && !job.photos) {
@@ -1387,8 +1607,139 @@
         return;
       }
       savedToast(result, 'Serahan direkodkan');
-      location.hash = '#/job/' + encodeURIComponent(job.id);
+      location.hash = '#/job/' + encodeURIComponent(job.id) + '?serah=1';
     });
+  }
+
+  /* ---------------- kerja saya (technician) ---------------- */
+  const QUICK = {
+    diterima: [['diperiksa', '🔍 Mula periksa'], ['dibaiki', '🔧 Mula repair'], ['menunggu_part', '⏳ Tunggu part'], ['siap', '✅ Siap']],
+    diperiksa: [['dibaiki', '🔧 Mula repair'], ['menunggu_part', '⏳ Tunggu part'], ['siap', '✅ Siap']],
+    dibaiki: [['menunggu_part', '⏳ Tunggu part'], ['siap', '✅ Siap']],
+    menunggu_part: [['dibaiki', '🔧 Part sampai – repair'], ['siap', '✅ Siap']],
+  };
+
+  async function viewMine() {
+    const pics = picList();
+    let mine = localStorageGet('myPic');
+    if (!mine) mine = pics.find((n) => n.toLowerCase() === String(me()).toLowerCase()) || '';
+
+    app.innerHTML = `
+      <section class="hero hero-sm">
+        <div>
+          <div class="eyebrow">Technician</div>
+          <h1>Kerja saya</h1>
+        </div>
+        <label class="mine-pick">Saya ialah
+          <select id="myPic"><option value="">— Pilih nama —</option>${pics
+            .map((n) => `<option ${n === mine ? 'selected' : ''}>${esc(n)}</option>`)
+            .join('')}</select>
+        </label>
+      </section>
+      <div id="mineBody"><div class="empty">Memuatkan…</div></div>`;
+
+    $('#myPic').addEventListener('change', (e) => {
+      localStorageSet('myPic', e.target.value);
+      viewMine();
+    });
+
+    let byId = {};
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const card = (j, actions) => {
+      const days = daysSince(j.createdAt);
+      const late = j.eta && new Date(j.eta + 'T23:59:59') < new Date() && ['diterima', 'diperiksa', 'dibaiki', 'menunggu_part'].includes(j.status);
+      const lateDays = late ? Math.max(1, Math.floor((today - new Date(j.eta + 'T00:00:00')) / 864e5)) : 0;
+      return `<div class="mjob ${late ? 'late' : ''}">
+        <div class="job-top"><a href="#/job/${encodeURIComponent(j.id)}"><strong>${esc(j.id)}</strong></a>${badge(j.status)}</div>
+        <div class="job-dev">${esc([j.device.brand, j.device.model].filter(Boolean).join(' '))}${j.location ? ` <span class="loc">📍 ${esc(j.location)}</span>` : ''}${j.warrantyOf ? ' <span class="kod">🛡 Waranti</span>' : ''}</div>
+        <div class="small">${esc(j.problem)}</div>
+        <div class="small muted">${days} hari dalam kedai${j.eta ? ` · Anggaran siap ${fmtDate(j.eta, false)}` : ''}${late ? ` · <strong class="late-txt">Lewat ${lateDays} hari</strong>` : ''}</div>
+        <div class="mjob-acts">${actions}</div>
+      </div>`;
+    };
+
+    const draw = (jobs) => {
+      byId = {};
+      jobs.forEach((j) => (byId[j.id] = j));
+      if (!mine) {
+        $('#mineBody').innerHTML = '<div class="card empty">Pilih nama anda di atas untuk melihat kerja anda.</div>';
+        return;
+      }
+      const active = jobs.filter((j) => j.status !== 'diambil');
+      const sortQ = (a, b) => {
+        const ea = a.eta || '9999';
+        const eb = b.eta || '9999';
+        return ea === eb ? (a.createdAt < b.createdAt ? -1 : 1) : ea < eb ? -1 : 1;
+      };
+      const my = active.filter((j) => j.pic === mine);
+      const todo = my.filter((j) => ['diterima', 'diperiksa', 'dibaiki'].includes(j.status)).sort(sortQ);
+      const part = my.filter((j) => j.status === 'menunggu_part').sort(sortQ);
+      const done = my.filter((j) => ['siap', 'batal'].includes(j.status));
+      const free = active.filter((j) => !j.pic && ['diterima', 'diperiksa', 'dibaiki', 'menunggu_part'].includes(j.status)).sort(sortQ);
+      const acts = (j) =>
+        (QUICK[j.status] || []).map(([s, l]) => `<button class="btn small ${s === 'siap' ? 'primary' : ''}" data-act="${s}" data-id="${esc(j.id)}">${l}</button>`).join('');
+      const section = (title, list, actFn, empty) =>
+        `<section class="card mine-sec"><h2>${title} <span class="muted">(${list.length})</span></h2>${
+          list.length ? `<div class="mjobs">${list.map((j) => card(j, actFn(j))).join('')}</div>` : `<p class="muted small">${empty}</p>`
+        }</section>`;
+      $('#mineBody').innerHTML =
+        `<div class="tiles mine-tiles">
+          <div class="tile" style="border-left-color:#0891b2"><span class="tile-label">Perlu dibuat</span><span class="tile-n">${todo.length}</span></div>
+          <div class="tile" style="border-left-color:#d97706"><span class="tile-label">Tunggu part</span><span class="tile-n">${part.length}</span></div>
+          <div class="tile" style="border-left-color:#16a34a"><span class="tile-label">Siap, tunggu pelanggan</span><span class="tile-n">${done.length}</span></div>
+        </div>` +
+        section('🔧 Perlu dibuat', todo, acts, 'Tiada kerja tertunggak. 👍') +
+        section('⏳ Menunggu part', part, acts, 'Tiada.') +
+        section('📥 Belum ada PIC', free, (j) => `<button class="btn small primary" data-take="${esc(j.id)}">Ambil kerja ini</button>`, 'Semua job sudah ada PIC.') +
+        (done.length
+          ? `<details class="card mine-sec"><summary><h2>✅ Siap, tunggu pelanggan <span class="muted">(${done.length})</span></h2></summary><div class="mjobs">${done
+              .map((j) => card(j, `<a class="btn small" href="#/job/${encodeURIComponent(j.id)}">Buka</a>`))
+              .join('')}</div></details>`
+          : '');
+    };
+
+    const refresh = async () => {
+      const jobs = await DB.allJobs();
+      if (currentView !== 'saya' || !$('#mineBody')) return;
+      draw(jobs);
+    };
+    listRefresh = refresh;
+
+    $('#mineBody').addEventListener('click', async (e) => {
+      const act = e.target.closest('[data-act]');
+      const take = e.target.closest('[data-take]');
+      if (!act && !take) return;
+      if (take) {
+        const j2 = await DB.getJob(take.dataset.take);
+        addLog(j2, 'edit', [{ f: 'PIC repair', from: j2.pic || '', to: mine }]);
+        j2.pic = mine;
+        j2.updatedAt = new Date().toISOString();
+        try {
+          savedToast(await saveJob(j2), `${j2.id} diambil oleh ${mine}`);
+        } catch (err) {
+          alert('Gagal simpan: ' + errMsg(err));
+        }
+        return refresh();
+      }
+      const status = act.dataset.act;
+      const j = await DB.getJob(act.dataset.id);
+      if (!j) return;
+      // Siap: maklumkan pelanggan terus (WhatsApp dibuka dahulu supaya tidak disekat browser)
+      if (status === 'siap') {
+        window.open(`https://wa.me/${waPhone(j.customer.phone)}?text=${encodeURIComponent(statusWaMsg(j, 'siap', ''))}`, '_blank', 'noopener');
+      }
+      act.disabled = true;
+      try {
+        savedToast(await applyStatus(j, status, ''), `${j.id}: ${R.statusInfo(status).label}`);
+      } catch (err) {
+        alert('Gagal simpan: ' + errMsg(err));
+      }
+      refresh();
+    });
+
+    await refresh();
   }
 
   /* ---------------- laporan jualan ---------------- */
@@ -1441,7 +1792,10 @@
       r.daily[k] = (r.daily[k] || 0) + amt;
     };
     const staffRow = (name) => (r.staff[name] = r.staff[name] || { received: 0, pickups: 0 });
-    const picRow = (name) => (r.pics[name] = r.pics[name] || { received: 0, done: 0, sales: 0 });
+    const picRow = (name) => (r.pics[name] = r.pics[name] || { received: 0, done: 0, sales: 0, claims: 0 });
+    const byId = new Map(jobs.map((x) => [x.id, x]));
+    r.claims = 0;
+    r.reviews = 0;
 
     jobs.forEach((j) => {
       let touched = false;
@@ -1456,6 +1810,11 @@
         r.brands[b] = (r.brands[b] || 0) + 1;
         staffRow(j.staff || '(tiada nama)').received++;
         picRow(j.pic || '(tiada PIC)').received++;
+        if (j.warrantyOf) {
+          r.claims++;
+          const orig = byId.get(j.warrantyOf);
+          picRow((orig && orig.pic) || '(tiada PIC)').claims++;
+        }
       }
       if (j.pickup && inR(j.pickup.at)) {
         touched = true;
@@ -1471,6 +1830,7 @@
         pr.done++;
         pr.sales += n(j.pickup.finalPrice);
       }
+      if (j.reviewAsked && inR(j.reviewAsked.at)) r.reviews++;
       if ((j.history || []).some((h) => h.status === 'batal' && inR(h.at))) {
         touched = true;
         r.cancelled++;
@@ -1589,9 +1949,9 @@
           <h3>Prestasi PIC repair</h3>
           ${
             Object.keys(r.pics).length
-              ? `<table class="tbl"><thead><tr><th>PIC</th><th class="num">Job diterima</th><th class="num">Siap &amp; diambil</th><th class="num">Jualan</th></tr></thead><tbody>${Object.entries(r.pics)
+              ? `<table class="tbl"><thead><tr><th>PIC</th><th class="num">Job diterima</th><th class="num">Siap &amp; diambil</th><th class="num">Jualan</th><th class="num" title="Claim waranti ke atas kerja PIC ini">Claim waranti</th></tr></thead><tbody>${Object.entries(r.pics)
                   .sort((a, b) => b[1].sales - a[1].sales || b[1].done - a[1].done)
-                  .map(([k, v]) => `<tr><td>${esc(k)}</td><td class="num">${v.received}</td><td class="num">${v.done}</td><td class="num">${money(v.sales)}</td></tr>`)
+                  .map(([k, v]) => `<tr><td>${esc(k)}</td><td class="num">${v.received}</td><td class="num">${v.done}</td><td class="num">${money(v.sales)}</td><td class="num">${v.claims}</td></tr>`)
                   .join('')}</tbody></table>`
               : '<p class="muted small">Tiada data dalam tempoh ini.</p>'
           }
@@ -1613,6 +1973,8 @@
           <div class="r-row"><span>Device diterima</span><strong>${r.received}</strong></div>
           <div class="r-row"><span>Device diambil pelanggan</span><strong>${r.collected}</strong></div>
           <div class="r-row"><span>Dibatalkan</span><strong>${r.cancelled}</strong></div>
+          <div class="r-row"><span>🛡 Claim waranti diterima</span><strong>${r.claims}</strong></div>
+          <div class="r-row"><span>⭐ Review Google diminta</span><strong>${r.reviews}</strong></div>
           <div class="r-row"><span>Purata tempoh repair (terima → ambil)</span><strong>${r.avgDays == null ? '-' : r.avgDays.toFixed(1) + ' hari'}</strong></div>
           <div class="r-row"><span>Deposit diterima</span><strong>${money(r.deposits)}</strong></div>
           <div class="r-row"><span>Bayaran semasa ambil</span><strong>${money(r.paidAtPickup)}</strong></div>
@@ -1738,6 +2100,10 @@
             <label>PIC repair / technician (satu nama satu baris)<textarea name="pics" rows="5">${esc((settings.pics || []).join('\n'))}</textarea></label>
             <label>Slogan (jalur atas)<input name="slogan" value="${esc(settings.slogan)}"></label>
           </div>
+          <div class="grid2">
+            <label>⭐ Link Google Review<input name="reviewLink" type="url" value="${esc(settings.reviewLink)}" placeholder="https://g.page/r/…/review"></label>
+            <label>Mesej minta review ({kedai}, {nama}, {link})<textarea name="reviewMsg" rows="4">${esc(settings.reviewMsg)}</textarea></label>
+          </div>
           <label>Terma & syarat (satu baris = satu syarat)<textarea name="terms" rows="8">${esc(settings.terms)}</textarea></label>
           <div class="actions"><button class="btn primary" type="submit">Simpan Tetapan</button></div>
         </fieldset>
@@ -1819,6 +2185,8 @@
         terms: fd.get('terms').trim(),
         pics: fd.get('pics').split('\n').map((x) => x.trim()).filter(Boolean),
         slogan: fd.get('slogan').trim(),
+        reviewLink: fd.get('reviewLink').trim(),
+        reviewMsg: fd.get('reviewMsg').trim() || DEFAULT_SETTINGS.reviewMsg,
       };
       try {
         await DB.saveSettings(next);
@@ -1997,7 +2365,7 @@
   /* ---------------- start ---------------- */
   /* ---------- semakan versi: pastikan semua telefon guna versi terbaru ----------
      Bila kemaskini app: naikkan APP_VERSION, version.json dan ?v= dalam index.html/resit.html */
-  const APP_VERSION = '14';
+  const APP_VERSION = '15';
 
   async function latestVersion() {
     try {
@@ -2060,7 +2428,7 @@
       return route();
     }
     DB.onChange(() => {
-      if (ready && currentView === 'list' && listRefresh) listRefresh();
+      if (ready && ['list', 'saya'].includes(currentView) && listRefresh) listRefresh();
     });
     DB.onAuth((u) => enterSession(u));
   }

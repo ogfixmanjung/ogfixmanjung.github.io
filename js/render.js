@@ -188,6 +188,7 @@
         <div class="r-no">${esc(job.id)}</div>
         <div class="small muted">Diterima: ${fmtDate(job.createdAt)}</div>
         <div class="r-status">${badge(job.status)}</div>
+        ${job.warrantyOf ? `<div class="r-warranty">🛡 Claim waranti · resit asal ${esc(job.warrantyOf)}</div>` : ''}
         ${
           job.pickupCode && job.status !== 'diambil'
             ? `<div class="r-code"><div class="r-code-label">KOD AMBIL</div><div class="r-code-num">${esc(job.pickupCode)}</div><div class="small">${
@@ -301,6 +302,7 @@
         staff: job.staff,
         history: (job.history || []).map((h) => ({ status: h.status, at: h.at, note: h.note || '' })),
         signed: !!job.signIn,
+        warrantyOf: job.warrantyOf || '',
         pickup: pk,
       },
       shop: { name: shop.name, address: shop.address, phone: shop.phone, terms: shop.terms },
