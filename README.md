@@ -40,12 +40,71 @@ Ini web app (PWA): boleh dibuka di browser telefon, tablet atau PC, dan boleh di
 3. Bila ada perkembangan, buka rekod, tukar **status**, dan WhatsApp pelanggan akan dibuka dengan mesej kemaskini serta link resit terbaru.
 4. Bila pelanggan datang ambil, semak no. resit pada WhatsApp mereka, kemudian tekan **Rekod Serahan Semula** dan minta pelanggan tandatangan.
 
-## PENTING: data & backup
+## Dua mod simpanan data
 
-- Data disimpan **dalam browser peranti yang digunakan** (IndexedDB). Tiada server dan tiada kos bulanan.
-- Data **tidak** dikongsi secara automatik antara dua peranti. Gunakan satu peranti utama di kaunter.
-- Buat **backup** secara berkala melalui **Tetapan → Muat turun backup**, dan simpan fail di Google Drive atau hantar ke WhatsApp sendiri. Jika telefon rosak atau data browser dipadam, pulihkan dengan **Pulihkan dari backup**.
-- Jika anda perlukan beberapa staff / peranti berkongsi data yang sama secara live, sistem ini boleh dinaik taraf menggunakan database online (contohnya Firebase atau Supabase).
+| | Mod Tempatan (asal) | Mod Cloud (Firebase) |
+|---|---|---|
+| Data disimpan | Dalam browser peranti itu sahaja | Online (Google Firebase) |
+| Staff lain boleh akses | ❌ | ✅ Dari telefon masing-masing |
+| Perlu login | Tidak | Ya (email + password) |
+| Data hilang jika telefon rosak | Ya (kecuali ada backup) | Tidak |
+| Kos | Percuma | Percuma (pelan Spark cukup untuk kedai biasa) |
+
+Mod dipilih melalui fail `js/config.js`. Jika `FIREBASE_CONFIG = null`, app guna mod tempatan.
+
+## Setup Firebase (mod cloud, dibuat sekali sahaja)
+
+1. Buka <https://console.firebase.google.com> dan login dengan akaun Google kedai.
+2. **Create a project**: namakan `ogfix`, tutup Google Analytics, kemudian tekan **Create project**.
+3. **Authentication**: menu kiri **Build → Authentication → Get started**. Pilih **Email/Password**, hidupkan (*Enable*), dan tekan **Save**.
+4. **Firestore**: menu kiri **Build → Firestore Database → Create database**.
+   - Pilih lokasi **asia-southeast1 (Singapore)**.
+   - Pilih **Start in production mode**, kemudian tekan **Create**.
+5. **Rules**: dalam Firestore, buka tab **Rules**.
+   - Padam semua isi asal dan tampal isi fail [`firestore.rules`](firestore.rules).
+   - Tukar `EMAIL_OWNER@gmail.com` kepada email owner (huruf kecil), kemudian tekan **Publish**.
+6. **Daftar web app**: klik ⚙ (sebelah *Project Overview*) **→ Project settings**. Di bawah *Your apps*, tekan ikon **`</>`**, namakan `ogfix-web`, dan tekan **Register app**.
+7. Salin objek `firebaseConfig` yang dipaparkan, kemudian masukkan ke dalam `js/config.js`:
+   ```js
+   window.FIREBASE_CONFIG = {
+     apiKey: "...",
+     authDomain: "....firebaseapp.com",
+     projectId: "...",
+     storageBucket: "...",
+     messagingSenderId: "...",
+     appId: "..."
+   };
+   ```
+   Nilai `apiKey` ini **bukan rahsia**. Ia memang direka untuk berada dalam kod website, dan keselamatan data dikawal oleh Rules di langkah 5.
+8. Push ke `main`. GitHub Pages akan dikemaskini dalam 1–2 minit.
+
+### Mula guna
+
+1. **Owner** buka app, masukkan email owner (sama seperti dalam Rules) dan password baru, kemudian tekan **"Daftar akaun"**. Akaun pertama dengan email owner akan menjadi owner.
+2. **Staff** buka app di telefon sendiri, dan daftar dengan email serta password mereka. Mereka akan nampak skrin *Menunggu Kelulusan*.
+3. Owner buka **Tetapan → Staff**, tambah email staff, dan minta staff tekan **Semak Semula**.
+4. Jika peranti kaunter ada rekod lama (mod tempatan), owner buka **Tetapan → Pindah Data Lama ke Cloud** pada peranti tersebut.
+
+### Kebenaran
+
+| Tindakan | Owner | Staff |
+|---|---|---|
+| Terima device, kemaskini status, serahan semula | ✅ | ✅ |
+| Lihat & cari semua rekod | ✅ | ✅ |
+| Padam rekod | ✅ | ❌ |
+| Ubah tetapan kedai, urus staff | ✅ | ❌ |
+
+Orang luar yang mendaftar tetapi emailnya tidak ditambah oleh owner tidak boleh melihat sebarang data.
+
+### Nota mod cloud
+
+- App masih boleh digunakan sekejap tanpa internet. Data disimpan dalam telefon dan akan sync bila internet kembali.
+- Senarai di skrin dikemaskini secara automatik bila staff lain buat perubahan.
+- Gambar device dikecilkan secara automatik supaya kekal dalam had percuma Firebase.
+
+## Backup (mod tempatan)
+
+Dalam mod tempatan, data disimpan **dalam browser peranti yang digunakan**. Buat **backup** secara berkala melalui **Tetapan → Muat turun backup**, dan simpan fail tersebut di Google Drive.
 
 ## Struktur fail
 
@@ -55,8 +114,13 @@ Ini web app (PWA): boleh dibuka di browser telefon, tablet atau PC, dan boleh di
 | `resit.html` | Halaman resit digital untuk pelanggan |
 | `js/app.js` | Logik app: borang, senarai, status, serahan, tetapan |
 | `js/render.js` | Paparan resit & penjanaan link pelanggan |
-| `js/db.js` | Simpanan data (IndexedDB) |
+| `js/config.js` | Tetapan Firebase (kosong = mod tempatan) |
+| `js/db-local.js` | Simpanan mod tempatan (IndexedDB) |
+| `js/db-cloud.js` | Simpanan mod cloud (Firebase Firestore + login) |
+| `js/db.js` | Pilih mod simpanan |
+| `firestore.rules` | Peraturan keselamatan database (salin ke Firebase Console) |
 | `css/style.css` | Reka bentuk |
-| `sw.js`, `manifest.webmanifest`, `icon.svg` | Fungsi PWA (install & offline) |
+| `sw.js`, `manifest.webmanifest` | Fungsi PWA (install & offline) |
+| `img/` | Logo ogfix. & ikon apps |
 
 Untuk cuba di komputer sendiri: `python3 -m http.server 8000`, kemudian buka `http://localhost:8000`.

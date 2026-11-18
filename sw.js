@@ -1,14 +1,20 @@
 /* Service worker: membolehkan app dibuka tanpa internet (offline). */
-const CACHE = 'ogfix-v1';
+const CACHE = 'ogfix-v3';
 const ASSETS = [
   './',
   './index.html',
   './resit.html',
   './css/style.css',
+  './js/config.js',
+  './js/db-local.js',
+  './js/db-cloud.js',
   './js/db.js',
   './js/render.js',
   './js/app.js',
-  './icon.svg',
+  './img/logo-white.png',
+  './img/logo-black.png',
+  './img/favicon.png',
+  './img/icon-192.png',
   './manifest.webmanifest',
 ];
 
@@ -28,7 +34,9 @@ self.addEventListener('activate', (e) => {
 /* Network dulu (supaya sentiasa versi terbaru), cache jika offline. */
 self.addEventListener('fetch', (e) => {
   const req = e.request;
-  if (req.method !== 'GET' || new URL(req.url).origin !== location.origin) return;
+  const url = new URL(req.url);
+  // Fail app sendiri + Firebase SDK (www.gstatic.com) disimpan untuk offline
+  if (req.method !== 'GET' || (url.origin !== location.origin && url.host !== 'www.gstatic.com')) return;
   e.respondWith(
     fetch(req)
       .then((res) => {

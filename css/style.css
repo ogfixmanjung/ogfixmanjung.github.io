@@ -4,7 +4,7 @@
   --text: #0f172a;
   --muted: #64748b;
   --line: #e2e8f0;
-  --primary: #0f172a;
+  --primary: #000000;
   --primary-text: #ffffff;
   --accent: #f97316;
   --wa: #16a34a;
@@ -36,8 +36,8 @@ h3 { margin: 0 0 10px; font-size: 15px; }
   background: var(--primary); color: #fff;
 }
 .brand { display: flex; align-items: center; gap: 8px; text-decoration: none; font-weight: 700; font-size: 18px; }
-.brand img { width: 30px; height: 30px; border-radius: 8px; }
-.brand small { font-weight: 400; opacity: .7; font-size: 13px; }
+.brand-logo { height: 26px; width: auto; display: block; }
+.brand small { font-weight: 400; opacity: .7; font-size: 13px; padding-left: 8px; border-left: 1px solid rgba(255,255,255,.3); }
 .nav { display: flex; gap: 4px; }
 .nav a { text-decoration: none; padding: 7px 12px; border-radius: 8px; font-size: 14px; opacity: .85; }
 .nav a.active { background: rgba(255,255,255,.14); opacity: 1; }
@@ -139,7 +139,7 @@ label.check:has(input:checked) { border-color: var(--accent); background: #fff7e
 /* ---------- receipt ---------- */
 .receipt { background: #fff; border-radius: var(--radius); box-shadow: var(--shadow); padding: 20px; max-width: 640px; margin: 0 auto; }
 .r-head { text-align: center; border-bottom: 2px dashed var(--line); padding-bottom: 14px; margin-bottom: 6px; }
-.r-shop { font-size: 22px; font-weight: 800; letter-spacing: .02em; }
+.r-logo { height: 46px; width: auto; display: block; margin: 0 auto 8px; }
 .r-title { margin-top: 12px; font-size: 12px; font-weight: 700; letter-spacing: .12em; color: var(--muted); }
 .r-no { font-size: 22px; font-weight: 800; font-family: ui-monospace, Menlo, Consolas, monospace; color: var(--accent); }
 .r-status { margin-top: 8px; }
@@ -186,3 +186,16 @@ body.public main { padding-top: 20px; }
   .receipt { box-shadow: none; padding: 0; max-width: none; }
   .receipt section { break-inside: avoid; }
 }
+
+/* ---------- login & staff (mod cloud) ---------- */
+body.logged-out .nav { display: none; }
+.login { max-width: 420px; margin: 24px auto; }
+.login-logo { height: 40px; width: auto; display: block; margin: 4px auto 18px; }
+.login-links { display: flex; justify-content: space-between; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+.linkbtn { background: none; border: 0; padding: 4px 0; color: var(--accent); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
+.form-error.ok { background: #f0fdf4; color: #14532d; border-color: #bbf7d0; }
+fieldset.plain { border: 0; padding: 0; margin: 0; min-width: 0; }
+.staff-list { list-style: none; padding: 0; margin: 0 0 12px; }
+.staff-list li { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--line); word-break: break-all; }
+.inline-form { display: flex; gap: 8px; }
+.inline-form input { margin: 0; flex: 1; }
