@@ -36,7 +36,8 @@ h3 { margin: 0 0 10px; font-size: 15px; }
   background: var(--primary); color: #fff;
 }
 .brand { display: flex; align-items: center; gap: 8px; text-decoration: none; font-weight: 700; font-size: 18px; }
-.brand-logo { height: 26px; width: auto; display: block; }
+.wordmark, .r-logo, .login-logo { display: block; width: auto; aspect-ratio: 796 / 294; }
+.brand .wordmark { height: 24px; color: #fff; }
 .brand small { font-weight: 400; opacity: .7; font-size: 13px; padding-left: 8px; border-left: 1px solid rgba(255,255,255,.3); }
 .nav { display: flex; gap: 4px; }
 .nav a { text-decoration: none; padding: 7px 12px; border-radius: 8px; font-size: 14px; opacity: .85; }
@@ -139,7 +140,8 @@ label.check:has(input:checked) { border-color: var(--accent); background: #fff7e
 /* ---------- receipt ---------- */
 .receipt { background: #fff; border-radius: var(--radius); box-shadow: var(--shadow); padding: 20px; max-width: 640px; margin: 0 auto; }
 .r-head { text-align: center; border-bottom: 2px dashed var(--line); padding-bottom: 14px; margin-bottom: 6px; }
-.r-logo { height: 46px; width: auto; display: block; margin: 0 auto 8px; }
+.r-logo { height: 44px; margin: 0 auto 10px; color: #000; }
+.r-shop { font-size: 22px; font-weight: 800; }
 .r-title { margin-top: 12px; font-size: 12px; font-weight: 700; letter-spacing: .12em; color: var(--muted); }
 .r-no { font-size: 22px; font-weight: 800; font-family: ui-monospace, Menlo, Consolas, monospace; color: var(--accent); }
 .r-status { margin-top: 8px; }
@@ -190,7 +192,7 @@ body.public main { padding-top: 20px; }
 /* ---------- login & staff (mod cloud) ---------- */
 body.logged-out .nav { display: none; }
 .login { max-width: 420px; margin: 24px auto; }
-.login-logo { height: 40px; width: auto; display: block; margin: 4px auto 18px; }
+.login-logo { height: 38px; margin: 4px auto 18px; color: #000; }
 .login-links { display: flex; justify-content: space-between; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
 .linkbtn { background: none; border: 0; padding: 4px 0; color: var(--accent); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
 .form-error.ok { background: #f0fdf4; color: #14532d; border-color: #bbf7d0; }
