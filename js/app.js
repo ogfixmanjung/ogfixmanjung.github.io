@@ -126,6 +126,7 @@
     serahan: 'Serahan semula',
     pindah: 'Dipindah ke cloud',
     pulih: 'Dipulihkan dari backup',
+    resit: 'Link resit dijana',
   };
 
   function renderLog(job) {
@@ -148,6 +149,13 @@
       : '<li class="muted small">Tiada log. Rekod ini dicipta sebelum log perubahan diaktifkan.</li>';
     return `<details class="card log-card"><summary><h3>Log Perubahan (${log.length})</h3></summary><ul class="log">${body}</ul>
       <p class="small muted">Log tidak boleh dipadam atau diubah oleh staff.</p></details>`;
+  }
+
+  /* Simpan job + (mod cloud) salinan resit pelanggan untuk link pendek */
+  function saveJob(job, photos) {
+    if (!CLOUD) return DB.putJob(job, photos);
+    if (!job.receiptToken) job.receiptToken = R.newReceiptToken();
+    return DB.putJob(job, photos, R.publicPayload(job, settings));
   }
 
   function canEditSettings() {
@@ -244,6 +252,7 @@
 
   /* ---------------- router ---------------- */
   async function route() {
+    if (window.ReceiptExport) ReceiptExport.close();
     if (!ready) return;
     const hash = location.hash.replace(/^#\/?/, '');
     const [path, query] = hash.split('?');
@@ -701,7 +710,7 @@
       }
       let result;
       try {
-        result = await DB.putJob(data, !job || photosChanged ? photos : undefined);
+        result = await saveJob(data, !job || photosChanged ? photos : undefined);
       } catch (err) {
         btn.disabled = false;
         btn.textContent = job ? 'Simpan Perubahan' : 'Simpan & Jana Resit';
@@ -719,6 +728,11 @@
     const job = await DB.getJob(id);
     if (!job) throw new Error('Rekod tidak dijumpai: ' + id);
     const closed = job.status === 'diambil';
+    if (CLOUD && !job.receiptToken) {
+      // Rekod lama: jana link resit pendek sekali sahaja
+      addLog(job, 'resit');
+      await saveJob(job);
+    }
     const link = customerLink(job, settings);
 
     app.innerHTML = `
@@ -735,9 +749,10 @@
               <button class="btn wa" id="btnWa">📲 Hantar via WhatsApp</button>
               <button class="btn" id="btnCopy">🔗 Salin link resit</button>
               <a class="btn" href="${esc(link)}" target="_blank" rel="noopener">👁 Lihat paparan pelanggan</a>
-              <button class="btn" id="btnPrint">🖨 Cetak / Simpan PDF</button>
+              <button class="btn" id="btnSave">💾 Simpan resit (Gambar / PDF)</button>
+              <button class="btn desktop-only" id="btnPrint">🖨 Cetak</button>
             </div>
-            <p class="small muted">Link resit mengandungi status terkini. Hantar semula selepas kemaskini status.</p>
+            <p class="small muted">${CLOUD ? 'Pelanggan sentiasa nampak status terkini melalui link yang sama.' : 'Link resit mengandungi status terkini. Hantar semula selepas kemaskini status.'}</p>
           </div>
 
           ${
@@ -806,6 +821,15 @@
       }
     });
     $('#btnPrint').addEventListener('click', () => window.print());
+    $('#btnSave').addEventListener('click', () => {
+      // Jana dari versi pelanggan (tanpa passcode, gambar & tandatangan)
+      const pub = R.publicPayload(job, settings);
+      const box = document.createElement('div');
+      box.className = 'export-stage';
+      box.innerHTML = renderReceipt(pub.job, pub.shop, { isPublic: true });
+      document.body.appendChild(box);
+      ReceiptExport.open(box.querySelector('.receipt'), 'Resit-' + job.id).finally(() => box.remove());
+    });
     $('#btnDel').addEventListener('click', async () => {
       if (!confirm(`Padam rekod ${job.id}? Tindakan ini tidak boleh diundur.`)) return;
       try {
@@ -839,7 +863,7 @@
         job.history = (job.history || []).concat([{ status, at: now, note, by: me() }]);
         let result;
         try {
-          result = await DB.putJob(job);
+          result = await saveJob(job);
         } catch (err) {
           alert('Gagal simpan: ' + errMsg(err));
           return;
@@ -944,7 +968,7 @@
       job.history = (job.history || []).concat([{ status: 'diambil', at: now, note: job.pickup.note, by: me() }]);
       let result;
       try {
-        result = await DB.putJob(job);
+        result = await saveJob(job);
       } catch (err) {
         b.hidden = false;
         b.textContent = 'Gagal simpan: ' + errMsg(err);
@@ -1115,7 +1139,7 @@
             const copy = Object.assign({}, j);
             delete copy.photos;
             addLog(copy, 'pindah');
-            await DB.putJob(copy, photos);
+            await saveJob(copy, photos);
             done++;
           } catch (err) {
             alert(`Gagal pindah ${j.id}: ${errMsg(err)}`);
@@ -1209,7 +1233,7 @@
             const copy = Object.assign({}, j);
             delete copy.photos;
             addLog(copy, 'pulih');
-            await DB.putJob(copy, photos);
+            await saveJob(copy, photos);
           }
           if (data.settings && confirm('Pulihkan juga tetapan kedai dari backup?')) {
             settings = Object.assign({}, settings, data.settings);
