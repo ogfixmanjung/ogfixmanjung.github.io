@@ -193,7 +193,7 @@
     setLoggedIn(false);
     app.innerHTML = `
       <form id="loginForm" class="card form login">
-        <img class="login-logo" src="img/logo-black.png" alt="ogfix.">
+        ${OGFIX_LOGO('login-logo')}
         <h2>Log Masuk Staff</h2>
         <p class="muted small">Log masuk untuk akses rekod device kedai.</p>
         <label>Email<input name="email" type="email" autocomplete="username" required></label>
@@ -253,7 +253,7 @@
     const u = DB.currentUser();
     app.innerHTML = `
       <div class="card form login">
-        <img class="login-logo" src="img/logo-black.png" alt="ogfix.">
+        ${OGFIX_LOGO('login-logo')}
         <h2>Menunggu Kelulusan</h2>
         <p>Akaun <strong>${esc(u && u.email)}</strong> telah didaftarkan tetapi belum diluluskan.</p>
         <p>Minta owner kedai buka <strong>Tetapan → Staff</strong> dan tambah email ini. Kemudian tekan <em>Semak Semula</em>.</p>
