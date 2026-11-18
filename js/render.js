@@ -157,8 +157,10 @@
         <div class="small muted">Diterima: ${fmtDate(job.createdAt)}</div>
         <div class="r-status">${badge(job.status)}</div>
         ${
-          isPublic && job.pickupCode && job.status !== 'diambil'
-            ? `<div class="r-code"><div class="r-code-label">KOD AMBIL</div><div class="r-code-num">${esc(job.pickupCode)}</div><div class="small">Sebut / tunjuk kod ini semasa mengambil device</div></div>`
+          job.pickupCode && job.status !== 'diambil'
+            ? `<div class="r-code"><div class="r-code-label">KOD AMBIL</div><div class="r-code-num">${esc(job.pickupCode)}</div><div class="small">${
+                isPublic ? 'Sebut / tunjuk kod ini semasa mengambil device' : 'Tulis kod ini pada sticker / kertas di device'
+              }</div></div>`
             : ''
         }
       </header>
