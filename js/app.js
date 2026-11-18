@@ -137,7 +137,7 @@
     pindah: 'Dipindah ke cloud',
     pulih: 'Dipulihkan dari backup',
     peringatan: 'Peringatan dihantar',
-    resit: 'Link resit dijana',
+    resit: 'Link resit / kod ambil dijana',
   };
 
   function renderLog(job) {
@@ -160,6 +160,27 @@
       : '<li class="muted small">Tiada log. Rekod ini dicipta sebelum log perubahan diaktifkan.</li>';
     return `<details class="card log-card"><summary><h3>Log Perubahan (${log.length})</h3></summary><ul class="log">${body}</ul>
       <p class="small muted">Log tidak boleh dipadam atau diubah oleh staff.</p></details>`;
+  }
+
+  /* ---------- kod ambil (4 digit) ---------- */
+  async function newPickupCode() {
+    let used = new Set();
+    try {
+      used = new Set((await DB.allJobs()).filter((j) => j.status !== 'diambil' && j.pickupCode).map((j) => j.pickupCode));
+    } catch (e) {}
+    const buf = new Uint32Array(1);
+    for (let i = 0; i < 50; i++) {
+      crypto.getRandomValues(buf);
+      const code = String(1000 + (buf[0] % 9000));
+      if (!used.has(code)) return code;
+    }
+    return String(1000 + (buf[0] % 9000));
+  }
+
+  function codeLine(job) {
+    return job.pickupCode && job.status !== 'diambil'
+      ? `Kod Ambil: *${job.pickupCode}*\n(sebut / tunjuk kod ini semasa mengambil device)\n`
+      : '';
   }
 
   /* ---------- peringatan device belum diambil ---------- */
@@ -195,7 +216,7 @@
       (job.status === 'batal' ? 'sedia untuk diambil semula' : 'telah siap dibaiki') +
       ` sejak ${fmtDate(readySince(job), false)} (${days} hari).\n\nSila ambil device anda di kedai pada waktu operasi.` +
       (bal > 0 ? ` Anggaran baki bayaran: ${money(bal)}.` : '') +
-      `\n\nResit digital:\n${customerLink(job, settings)}\n\n` +
+      `\n\n${codeLine(job)}\nResit digital:\n${customerLink(job, settings)}\n\n` +
       `Mengikut terma kami, device yang tidak dituntut dalam tempoh ${abandon} hari selepas dimaklumkan siap bukan lagi tanggungjawab kedai.\n\n- ${settings.name}`;
     window.open(`https://wa.me/${waPhone(job.customer.phone)}?text=${encodeURIComponent(msg)}`, '_blank', 'noopener');
     const n = (job.reminders || []).length + 1;
@@ -539,7 +560,7 @@
         if (listFilter.status === 'aktif' && !isActive(j)) return false;
         if (!['aktif', 'semua'].includes(listFilter.status) && j.status !== listFilter.status) return false;
         if (!q) return true;
-        const hay = [j.id, j.customer.name, j.customer.phone, j.device.brand, j.device.model, j.device.imei, j.problem, j.location]
+        const hay = [j.id, j.customer.name, j.customer.phone, j.device.brand, j.device.model, j.device.imei, j.problem, j.location, j.status !== 'diambil' ? j.pickupCode : '']
           .join(' ')
           .toLowerCase();
         return hay.includes(q) || (qDigits.length >= 3 && hay.replace(/\D/g, '').includes(qDigits));
@@ -810,6 +831,7 @@
         data.signIn = pad.toDataURL();
         data.agreed = true;
         data.pickup = null;
+        data.pickupCode = await newPickupCode();
         addLog(data, 'cipta', photos.length ? [{ f: 'Gambar', from: '', to: String(photos.length) }] : []);
       }
       let result;
@@ -832,10 +854,21 @@
     const job = await DB.getJob(id);
     if (!job) throw new Error('Rekod tidak dijumpai: ' + id);
     const closed = job.status === 'diambil';
-    if (CLOUD && !job.receiptToken) {
-      // Rekod lama: jana link resit pendek sekali sahaja
-      addLog(job, 'resit');
-      await saveJob(job);
+    const needCode = !job.pickupCode && !closed;
+    if ((CLOUD && !job.receiptToken) || needCode) {
+      // Rekod lama: jana link resit pendek / kod ambil sekali sahaja
+      const backup = { receiptToken: job.receiptToken, pickupCode: job.pickupCode, log: job.log };
+      try {
+        if (needCode) job.pickupCode = await newPickupCode();
+        addLog(job, 'resit', needCode ? [{ f: 'Kod ambil', from: '', to: '(dijana)' }] : []);
+        await saveJob(job);
+      } catch (err) {
+        // Gagal simpan (cth: tiada kebenaran/offline) – papar job seperti biasa tanpa link pendek/kod baru
+        console.warn('Gagal jana link/kod untuk rekod lama', err);
+        Object.assign(job, backup);
+        if (!backup.receiptToken) delete job.receiptToken;
+        if (!backup.pickupCode) delete job.pickupCode;
+      }
     }
     const link = customerLink(job, settings);
 
@@ -936,7 +969,8 @@
           (job.estimate !== '' && job.estimate != null ? `Anggaran: ${money(job.estimate)}\n` : '') +
           (job.deposit ? `Deposit: ${money(job.deposit)}\n` : '') +
           `Status: ${R.statusInfo(job.status).label}\n\n` +
-          `Resit digital & status pembaikan:\n${link}\n\nSila simpan mesej ini sebagai bukti penghantaran device.`
+          codeLine(job) +
+          `\nResit digital & status pembaikan:\n${link}\n\nSila simpan mesej ini sebagai bukti penghantaran device.`
       );
     });
     $('#btnCopy').addEventListener('click', async () => {
@@ -1008,7 +1042,9 @@
             `Salam ${job.customer.name},\n\nKemaskini untuk device anda (${dev}), No. Resit *${job.id}*:\n\n` +
             `Status: *${R.statusInfo(status).label}*\n` +
             (note ? `Nota: ${note}\n` : '') +
-            (status === 'siap' ? `\nDevice anda sudah siap dan boleh diambil. Sila tunjukkan resit digital semasa mengambil.\n` : '') +
+            (status === 'siap' || status === 'batal'
+              ? `\nDevice anda sedia untuk diambil. Sila sebut / tunjuk Kod Ambil semasa mengambil.\n${codeLine(job)}`
+              : '') +
             `\nResit & status terkini:\n${customerLink(job, settings)}\n\n- ${settings.name}`;
           sendWa(msg);
         }
@@ -1042,6 +1078,18 @@
           <label>Diambil oleh<input name="by" value="${esc(job.customer.name)}"></label>
         </div>
         <label>Nota (kerja yang dibuat, part ditukar, dll)<textarea name="note" rows="2"></textarea></label>
+        ${
+          job.pickupCode
+            ? `<div class="code-check">
+          <label>🔑 Kod Ambil — minta pelanggan sebut / tunjuk kod pada resit
+            <input name="code" class="code-input" inputmode="numeric" maxlength="4" autocomplete="off" placeholder="••••">
+          </label>
+          <div id="codeStatus" class="code-status" aria-live="polite"></div>
+          <label class="check"><input type="checkbox" name="noCode"><span>Pelanggan tiada / lupa kod</span></label>
+          <label id="altWrap" hidden>Cara pengesahan lain *<input name="altVerify" placeholder="cth: Semak IC – nama & no. telefon sepadan"></label>
+        </div>`
+            : ''
+        }
         <label class="check"><input type="checkbox" name="checked" required><span>Pelanggan telah memeriksa device dan berpuas hati.</span></label>
         <div class="sig-wrap">
           <div class="sig-label">Tandatangan pengambil *</div>
@@ -1064,10 +1112,44 @@
     const pad = signaturePad($('#sig'));
     $('#sigClear').addEventListener('click', () => pad.clear());
 
+    const codeInput = $('#pkForm [name=code]');
+    if (codeInput) {
+      const showCode = () => {
+        codeInput.value = codeInput.value.replace(/\D/g, '').slice(0, 4);
+        const st = $('#codeStatus');
+        if (codeInput.value.length < 4) {
+          st.className = 'code-status';
+          st.textContent = '';
+        } else if (codeInput.value === job.pickupCode) {
+          $('#formError').hidden = true;
+          st.className = 'code-status good';
+          st.textContent = '✔ Kod betul — serahkan device ini';
+        } else {
+          st.className = 'code-status bad';
+          st.textContent = '✖ Kod salah — semak semula resit pelanggan';
+        }
+      };
+      codeInput.addEventListener('input', showCode);
+      $('#pkForm [name=noCode]').addEventListener('change', (e) => {
+        $('#altWrap').hidden = !e.target.checked;
+        codeInput.disabled = e.target.checked;
+      });
+    }
+
     $('#pkForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       const fd = new FormData(e.target);
       const errors = [];
+      let verified = '';
+      if (job.pickupCode) {
+        if (fd.get('noCode')) {
+          const alt = (fd.get('altVerify') || '').trim();
+          if (!alt) errors.push('Cara pengesahan lain (pelanggan tiada kod)');
+          verified = 'Tanpa kod – ' + alt;
+        } else if ((fd.get('code') || '') !== job.pickupCode) {
+          errors.push('Kod Ambil yang betul');
+        } else verified = 'Kod ambil betul';
+      }
       if (!fd.get('checked')) errors.push('Pengesahan pelanggan');
       if (pad.isEmpty()) errors.push('Tandatangan');
       const b = $('#formError');
@@ -1087,12 +1169,14 @@
         note: fd.get('note').trim(),
         signOut: pad.toDataURL(),
         staff: me(),
+        verified,
       };
       const changes = [
         { f: 'Harga akhir', from: '', to: fmtVal(job.pickup.finalPrice, 'money') },
         { f: 'Dibayar', from: '', to: fmtVal(job.pickup.paid, 'money') + ' (' + job.pickup.method + ')' },
       ];
       if (job.pickup.warrantyDays) changes.push({ f: 'Waranti', from: '', to: job.pickup.warrantyDays + ' hari' });
+      if (verified) changes.push({ f: 'Pengesahan', from: '', to: verified });
       if (job.device && job.device.passcode) {
         // Passcode tidak diperlukan lagi selepas device diserahkan – padam untuk privasi pelanggan
         job.device = Object.assign({}, job.device, { passcode: '' });
@@ -1694,7 +1778,7 @@
   /* ---------------- start ---------------- */
   /* ---------- semakan versi: pastikan semua telefon guna versi terbaru ----------
      Bila kemaskini app: naikkan APP_VERSION, version.json dan ?v= dalam index.html/resit.html */
-  const APP_VERSION = '10';
+  const APP_VERSION = '11';
 
   async function latestVersion() {
     try {
