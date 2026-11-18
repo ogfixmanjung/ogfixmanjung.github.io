@@ -19,7 +19,16 @@
     'Keadaan baik',
   ];
   const PAY_METHODS = ['Tunai', 'Online Transfer', 'DuitNow QR', 'Kad Debit/Kredit', 'E-Wallet'];
-  const DEFAULT_SETTINGS = { name: 'OGFIX', phone: '', address: '', prefix: 'OGF', warrantyDays: 30, terms: DEFAULT_TERMS };
+  const DEFAULT_SETTINGS = {
+    name: 'OGFIX',
+    phone: '',
+    address: '',
+    prefix: 'OGF',
+    warrantyDays: 30,
+    remindDays: 3,
+    abandonDays: 30,
+    terms: DEFAULT_TERMS,
+  };
 
   let settings = Object.assign({}, DEFAULT_SETTINGS);
   let ready = false;
@@ -96,6 +105,7 @@
     ['Deposit', (j) => j.deposit, 'money'],
     ['Anggaran siap', (j) => j.eta],
     ['Staff terima', (j) => j.staff],
+    ['Lokasi simpanan', (j) => j.location],
     ['Nota', (j) => j.notes],
   ];
 
@@ -126,6 +136,7 @@
     serahan: 'Serahan semula',
     pindah: 'Dipindah ke cloud',
     pulih: 'Dipulihkan dari backup',
+    peringatan: 'Peringatan dihantar',
     resit: 'Link resit dijana',
   };
 
@@ -149,6 +160,56 @@
       : '<li class="muted small">Tiada log. Rekod ini dicipta sebelum log perubahan diaktifkan.</li>';
     return `<details class="card log-card"><summary><h3>Log Perubahan (${log.length})</h3></summary><ul class="log">${body}</ul>
       <p class="small muted">Log tidak boleh dipadam atau diubah oleh staff.</p></details>`;
+  }
+
+  /* ---------- peringatan device belum diambil ---------- */
+  const DAY = 864e5;
+
+  function readySince(job) {
+    const h = (job.history || []).filter((x) => x.status === job.status).pop();
+    return (h && h.at) || job.updatedAt || job.createdAt;
+  }
+
+  function daysSince(iso) {
+    return Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / DAY));
+  }
+
+  function needsReminder(job) {
+    return ['siap', 'batal'].includes(job.status) && daysSince(readySince(job)) >= Number(settings.remindDays || 3);
+  }
+
+  function lastReminder(job) {
+    const r = job.reminders || [];
+    return r.length ? r[r.length - 1] : null;
+  }
+
+  /* Hantar WhatsApp peringatan & rekod dalam job (log). window.open dipanggil dahulu
+     supaya tidak disekat oleh browser. */
+  async function remindCustomer(job) {
+    const dev = [job.device.brand, job.device.model].filter(Boolean).join(' ');
+    const days = daysSince(readySince(job));
+    const abandon = Number(settings.abandonDays || 30);
+    const bal = job.estimate !== '' && job.estimate != null ? Number(job.estimate) - Number(job.deposit || 0) : 0;
+    const msg =
+      `Salam ${job.customer.name},\n\nPeringatan mesra dari ${settings.name}: device anda (${dev}), No. Resit *${job.id}* ` +
+      (job.status === 'batal' ? 'sedia untuk diambil semula' : 'telah siap dibaiki') +
+      ` sejak ${fmtDate(readySince(job), false)} (${days} hari).\n\nSila ambil device anda di kedai pada waktu operasi.` +
+      (bal > 0 ? ` Anggaran baki bayaran: ${money(bal)}.` : '') +
+      `\n\nResit digital:\n${customerLink(job, settings)}\n\n` +
+      `Mengikut terma kami, device yang tidak dituntut dalam tempoh ${abandon} hari selepas dimaklumkan siap bukan lagi tanggungjawab kedai.\n\n- ${settings.name}`;
+    window.open(`https://wa.me/${waPhone(job.customer.phone)}?text=${encodeURIComponent(msg)}`, '_blank', 'noopener');
+    const n = (job.reminders || []).length + 1;
+    job.reminders = (job.reminders || []).concat([{ at: new Date().toISOString(), by: me() || actor() }]);
+    job.updatedAt = new Date().toISOString();
+    addLog(job, 'peringatan', [{ f: 'Peringatan ambil device', from: '', to: `#${n} (${days} hari selepas siap)` }]);
+    const res = await saveJob(job);
+    savedToast(res, 'Peringatan #' + n + ' direkod');
+  }
+
+  function reminderInfo(job) {
+    const r = lastReminder(job);
+    const n = (job.reminders || []).length;
+    return r ? `Diingatkan ${n}× · terakhir ${fmtDate(r.at, false)}` : 'Belum pernah diingatkan';
   }
 
   /* Simpan job + (mod cloud) salinan resit pelanggan untuk link pendek */
@@ -267,6 +328,7 @@
       if (parts[0] === 'job' && parts[1]) return await viewJob(decodeURIComponent(parts[1]), new URLSearchParams(query));
       if (parts[0] === 'ambil' && parts[1]) return await viewPickup(decodeURIComponent(parts[1]));
       if (parts[0] === 'tetapan') return await viewSettings();
+      if (parts[0] === 'laporan') return await viewReport();
       app.innerHTML = '<p>Halaman tidak dijumpai.</p>';
     } catch (err) {
       console.error(err);
@@ -410,6 +472,7 @@
     try {
       const role = await DB.startSession();
       if (role === 'pending') return DB.isVerified() ? viewPending() : viewVerify();
+      document.body.classList.toggle('is-owner', role === 'owner');
       await loadSettings();
       setLoggedIn(true);
       ready = true;
@@ -429,6 +492,7 @@
   async function viewList() {
     app.innerHTML = `
       <div class="stats" id="stats"></div>
+      <div id="remind"></div>
       <div class="toolbar">
         <input type="search" id="q" placeholder="Cari no. resit, nama, telefon, IMEI, model…" value="${esc(listFilter.q)}">
         <select id="f"></select>
@@ -475,17 +539,41 @@
         if (listFilter.status === 'aktif' && !isActive(j)) return false;
         if (!['aktif', 'semua'].includes(listFilter.status) && j.status !== listFilter.status) return false;
         if (!q) return true;
-        const hay = [j.id, j.customer.name, j.customer.phone, j.device.brand, j.device.model, j.device.imei, j.problem]
+        const hay = [j.id, j.customer.name, j.customer.phone, j.device.brand, j.device.model, j.device.imei, j.problem, j.location]
           .join(' ')
           .toLowerCase();
         return hay.includes(q) || (qDigits.length >= 3 && hay.replace(/\D/g, '').includes(qDigits));
       });
+      // Kad "Belum diambil"
+      const late = jobs
+        .filter(needsReminder)
+        .map((j) => ({ j, d: daysSince(readySince(j)) }))
+        .sort((a, b) => b.d - a.d);
+      const abandon = Number(settings.abandonDays || 30);
+      $('#remind').innerHTML = late.length
+        ? `<details class="card remind-card" ${listFilter.remindOpen === false ? '' : 'open'}>
+            <summary><h3>⏰ Belum Diambil (${late.length})</h3><span class="small muted">siap ≥ ${esc(settings.remindDays || 3)} hari</span></summary>
+            <ul class="remind-list">${late
+              .map(
+                ({ j, d }) => `<li class="${d >= abandon ? 'overdue' : ''}">
+                <a href="#/job/${encodeURIComponent(j.id)}" class="remind-main">
+                  <strong>${esc(j.id)}</strong> · ${esc([j.device.brand, j.device.model].filter(Boolean).join(' '))}
+                  <div class="small">${esc(j.customer.name)} · <span class="remind-days">${d} hari${d >= abandon ? ' (lebih ' + abandon + ' hari)' : ''}</span></div>
+                  <div class="small muted">${reminderInfo(j)}</div>
+                </a>
+                <button class="btn small wa" data-remind="${esc(j.id)}">📲 Ingatkan</button>
+              </li>`
+              )
+              .join('')}</ul>
+          </details>`
+        : '';
+
       $('#list').innerHTML = out.length
         ? out
             .map(
               (j) => `<a class="job" href="#/job/${encodeURIComponent(j.id)}">
               <div class="job-top"><strong>${esc(j.id)}</strong>${badge(j.status)}</div>
-              <div class="job-dev">${esc([j.device.brand, j.device.model].filter(Boolean).join(' '))}</div>
+              <div class="job-dev">${esc([j.device.brand, j.device.model].filter(Boolean).join(' '))}${j.location && j.status !== 'diambil' ? ` <span class="loc">📍 ${esc(j.location)}</span>` : ''}</div>
               <div class="muted small">${esc(j.customer.name)} · ${esc(j.customer.phone)}</div>
               <div class="small job-prob">${esc(j.problem)}</div>
               <div class="muted small">Diterima ${fmtDate(j.createdAt)}${j.eta ? ' · Anggaran siap ' + fmtDate(j.eta, false) : ''}</div>
@@ -507,6 +595,20 @@
     });
     $('#f').addEventListener('change', (e) => {
       listFilter.status = e.target.value;
+      refresh();
+    });
+    $('#remind').addEventListener('toggle', (e) => (listFilter.remindOpen = e.target.open), true);
+    $('#remind').addEventListener('click', async (e) => {
+      const b = e.target.closest('button[data-remind]');
+      if (!b) return;
+      e.preventDefault();
+      b.disabled = true;
+      try {
+        const job = await DB.getJob(b.dataset.remind);
+        await remindCustomer(job);
+      } catch (err) {
+        alert('Gagal rekod peringatan: ' + errMsg(err));
+      }
       refresh();
     });
     await refresh();
@@ -549,6 +651,7 @@
             <label>Warna<input name="color" value="${esc(j.device.color)}"></label>
             <label>IMEI / Serial No.<input name="imei" value="${esc(j.device.imei)}" inputmode="numeric" placeholder="Dail *#06#"></label>
           </div>
+          <label>📍 Lokasi simpanan device<input name="location" value="${esc(j.location)}" placeholder="cth: Rak A2, Laci 3, Tray 15" autocomplete="off"></label>
           <label>Passcode / Pattern (untuk ujian)<input name="passcode" value="${esc(j.device.passcode)}" autocomplete="off" placeholder="Tidak akan dipapar pada resit customer"></label>
           <datalist id="brands">${['Apple', 'Samsung', 'Xiaomi', 'Redmi', 'Oppo', 'Vivo', 'Realme', 'Huawei', 'Honor', 'Infinix', 'Poco', 'OnePlus', 'Google', 'Nokia']
             .map((b) => `<option value="${b}">`)
@@ -681,6 +784,7 @@
         deposit: num(fd.get('deposit')),
         eta: fd.get('eta'),
         staff: fd.get('staff').trim(),
+        location: fd.get('location').trim(),
         notes: fd.get('notes').trim(),
         updatedAt: now,
       });
@@ -765,10 +869,21 @@
                 .map((s) => `<option value="${s.key}" ${s.key === job.status ? 'selected' : ''}>${esc(s.label)}</option>`)
                 .join('')}</select>
               <textarea name="note" rows="2" placeholder="Nota (cth: Part skrin dah order, ETA 3 hari)"></textarea>
+              <label class="small">📍 Lokasi simpanan<input name="location" value="${esc(job.location || '')}" placeholder="cth: Rak A2"></label>
               <label class="check"><input type="checkbox" name="notify" checked><span>Maklumkan pelanggan via WhatsApp</span></label>
               <button class="btn primary" type="submit">Kemaskini</button>
             </form>
           </div>
+          ${
+            ['siap', 'batal'].includes(job.status)
+              ? `<div class="card ${needsReminder(job) ? 'remind-card' : ''}">
+            <h3>Ingatkan Pelanggan Ambil</h3>
+            <p class="small">${job.status === 'batal' ? 'Sedia diambil' : 'Siap'} sejak ${fmtDate(readySince(job), false)} (<strong>${daysSince(readySince(job))} hari</strong>)</p>
+            <p class="small muted">${reminderInfo(job)}</p>
+            <button class="btn wa block" id="btnRemind">📲 Hantar Peringatan</button>
+          </div>`
+              : ''
+          }
           <div class="card">
             <h3>Pelanggan Ambil Device</h3>
             <a class="btn primary block" href="#/ambil/${encodeURIComponent(job.id)}">✔ Rekod Serahan Semula</a>
@@ -795,6 +910,18 @@
           }
         })
         .catch(() => {});
+    }
+
+    if ($('#btnRemind')) {
+      $('#btnRemind').addEventListener('click', async (e) => {
+        e.target.disabled = true;
+        try {
+          await remindCustomer(job);
+        } catch (err) {
+          alert('Gagal rekod peringatan: ' + errMsg(err));
+        }
+        route();
+      });
     }
 
     const sendWa = (text) => {
@@ -849,7 +976,9 @@
         const fd = new FormData(stForm);
         const status = fd.get('status');
         const note = fd.get('note').trim();
-        if (status === job.status && !note) {
+        const location = (fd.get('location') || '').trim();
+        const locChanged = location !== (job.location || '');
+        if (status === job.status && !note && !locChanged) {
           toast('Tiada perubahan');
           return;
         }
@@ -857,10 +986,16 @@
         const changes = [];
         if (status !== job.status) changes.push({ f: 'Status', from: R.statusInfo(job.status).label, to: R.statusInfo(status).label });
         if (note) changes.push({ f: 'Nota', from: '', to: note });
-        addLog(job, 'status', changes);
+        if (locChanged) {
+          changes.push({ f: 'Lokasi simpanan', from: job.location || '', to: location || '(kosong)' });
+          job.location = location;
+        }
+        const statusOrNote = status !== job.status || !!note;
+        addLog(job, statusOrNote ? 'status' : 'edit', changes);
         job.status = status;
         job.updatedAt = now;
-        job.history = (job.history || []).concat([{ status, at: now, note, by: me() }]);
+        // Tukar lokasi sahaja: tidak masuk timeline pelanggan & tiada WhatsApp
+        if (statusOrNote) job.history = (job.history || []).concat([{ status, at: now, note, by: me() }]);
         let result;
         try {
           result = await saveJob(job);
@@ -868,7 +1003,7 @@
           alert('Gagal simpan: ' + errMsg(err));
           return;
         }
-        if (fd.get('notify')) {
+        if (statusOrNote && fd.get('notify')) {
           const msg =
             `Salam ${job.customer.name},\n\nKemaskini untuk device anda (${dev}), No. Resit *${job.id}*:\n\n` +
             `Status: *${R.statusInfo(status).label}*\n` +
@@ -894,6 +1029,7 @@
       <form id="pkForm" class="card form" novalidate>
         <h2>Serahan Semula – ${esc(job.id)}</h2>
         <p class="muted">${esc(job.customer.name)} · ${esc([job.device.brand, job.device.model].join(' '))}</p>
+        ${job.location ? `<div class="loc-big">📍 Ambil device di: <strong>${esc(job.location)}</strong></div>` : ''}
         <div class="notice small">Semak resit / mesej WhatsApp pelanggan dan pastikan no. resit <strong>${esc(job.id)}</strong> sepadan sebelum serahkan device.</div>
         <div class="grid3">
           <label>Harga akhir (RM)<input name="finalPrice" type="number" step="0.01" min="0" inputmode="decimal" value="${esc(final)}"></label>
@@ -979,6 +1115,274 @@
     });
   }
 
+  /* ---------------- laporan jualan ---------------- */
+  let reportState = { period: 'bulan', from: '', to: '' };
+
+  function periodRange(key, from, to) {
+    const now = new Date();
+    const sod = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    const today = sod(now);
+    switch (key) {
+      case 'hari':
+        return [today, new Date(today.getTime() + DAY), 'Hari ini'];
+      case 'minggu': {
+        const s = new Date(today.getTime() - ((today.getDay() + 6) % 7) * DAY); // mula Isnin
+        return [s, new Date(s.getTime() + 7 * DAY), 'Minggu ini'];
+      }
+      case 'bulan_lepas':
+        return [new Date(now.getFullYear(), now.getMonth() - 1, 1), new Date(now.getFullYear(), now.getMonth(), 1), 'Bulan lepas'];
+      case 'tahun':
+        return [new Date(now.getFullYear(), 0, 1), new Date(now.getFullYear() + 1, 0, 1), 'Tahun ini'];
+      case 'pilih': {
+        const f = from ? new Date(from + 'T00:00:00') : today;
+        const t = to ? new Date(to + 'T00:00:00') : today;
+        return [f, new Date(t.getTime() + DAY), 'Tempoh dipilih'];
+      }
+      default:
+        return [new Date(now.getFullYear(), now.getMonth(), 1), new Date(now.getFullYear(), now.getMonth() + 1, 1), 'Bulan ini'];
+    }
+  }
+
+  function computeReport(jobs, start, end) {
+    const inR = (iso) => {
+      if (!iso) return false;
+      const t = new Date(iso).getTime();
+      return t >= start.getTime() && t < end.getTime();
+    };
+    const n = (v) => (v === '' || v == null || isNaN(Number(v)) ? 0 : Number(v));
+    const r = {
+      received: 0, collected: 0, cancelled: 0, sales: 0, cash: 0, deposits: 0, paidAtPickup: 0,
+      repairDays: [], methods: {}, brands: {}, staff: {}, daily: {}, rows: [],
+    };
+    const monthly = (end - start) / DAY > 62;
+    const bucketKey = (iso) => {
+      const d = new Date(iso);
+      return monthly ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}` : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    };
+    const addCash = (iso, amt) => {
+      if (!amt) return;
+      const k = bucketKey(iso);
+      r.daily[k] = (r.daily[k] || 0) + amt;
+    };
+    const staffRow = (name) => (r.staff[name] = r.staff[name] || { received: 0, pickups: 0 });
+
+    jobs.forEach((j) => {
+      let touched = false;
+      if (inR(j.createdAt)) {
+        touched = true;
+        r.received++;
+        const dep = n(j.deposit);
+        r.deposits += dep;
+        addCash(j.createdAt, dep);
+        if (dep) r.methods['Deposit'] = (r.methods['Deposit'] || 0) + dep;
+        const b = (j.device.brand || 'Lain-lain').trim();
+        r.brands[b] = (r.brands[b] || 0) + 1;
+        staffRow(j.staff || '(tiada nama)').received++;
+      }
+      if (j.pickup && inR(j.pickup.at)) {
+        touched = true;
+        r.collected++;
+        r.sales += n(j.pickup.finalPrice);
+        const paid = n(j.pickup.paid);
+        r.paidAtPickup += paid;
+        addCash(j.pickup.at, paid);
+        if (paid) r.methods[j.pickup.method || 'Lain-lain'] = (r.methods[j.pickup.method || 'Lain-lain'] || 0) + paid;
+        r.repairDays.push((new Date(j.pickup.at) - new Date(j.createdAt)) / DAY);
+        staffRow(j.pickup.staff || j.staff || '(tiada nama)').pickups++;
+      }
+      if ((j.history || []).some((h) => h.status === 'batal' && inR(h.at))) {
+        touched = true;
+        r.cancelled++;
+      }
+      if (touched) r.rows.push(j);
+    });
+    r.cash = r.deposits + r.paidAtPickup;
+    r.avgDays = r.repairDays.length ? r.repairDays.reduce((a, b) => a + b, 0) / r.repairDays.length : null;
+
+    // Siri masa lengkap (termasuk hari tanpa kutipan)
+    r.series = [];
+    if (monthly) {
+      for (let d = new Date(start.getFullYear(), start.getMonth(), 1); d < end; d = new Date(d.getFullYear(), d.getMonth() + 1, 1)) {
+        r.series.push({ key: bucketKey(d), label: d.toLocaleString('ms-MY', { month: 'short' }), full: d.toLocaleString('ms-MY', { month: 'long', year: 'numeric' }), value: r.daily[bucketKey(d)] || 0 });
+      }
+    } else {
+      for (let d = new Date(start); d < end; d = new Date(d.getTime() + DAY)) {
+        r.series.push({ key: bucketKey(d), label: String(d.getDate()), full: fmtDate(d.toISOString(), false), value: r.daily[bucketKey(d)] || 0 });
+      }
+    }
+
+    // Baki belum dikutip: semua device masih dalam kedai (bukan ikut tempoh)
+    r.outstanding = 0;
+    r.inShop = 0;
+    jobs.forEach((j) => {
+      if (j.status === 'diambil') return;
+      r.inShop++;
+      if (j.estimate !== '' && j.estimate != null) r.outstanding += Math.max(0, n(j.estimate) - n(j.deposit));
+    });
+    return r;
+  }
+
+  function rankedBars(obj, fmt, limit = 8) {
+    const rows = Object.entries(obj).sort((a, b) => b[1] - a[1]);
+    if (!rows.length) return '<p class="muted small">Tiada data dalam tempoh ini.</p>';
+    let shown = rows.slice(0, limit);
+    if (rows.length > limit) shown.push(['Lain-lain', rows.slice(limit).reduce((a, r) => a + r[1], 0)]);
+    const max = Math.max(...shown.map((r) => r[1])) || 1;
+    return `<ul class="hbars">${shown
+      .map(
+        ([k, v]) => `<li><span class="hb-name">${esc(k)}</span><span class="hb-track"><span class="hb-bar" style="width:${Math.max(2, (v / max) * 100)}%"></span></span><span class="hb-val">${fmt(v)}</span></li>`
+      )
+      .join('')}</ul>`;
+  }
+
+  function columnChart(series) {
+    const max = Math.max(0, ...series.map((s) => s.value));
+    if (!max) return '<p class="muted small">Tiada kutipan dalam tempoh ini.</p>';
+    const every = series.length > 16 ? Math.ceil(series.length / 8) : 1;
+    return `<div class="colchart" role="img" aria-label="Carta kutipan; lihat jadual di bawah untuk nilai">
+      <div class="cc-max small muted">${money(max)}</div>
+      <div class="cc-plot">${series
+        .map(
+          (s, i) => `<button type="button" class="cc-col" data-tip="${esc(s.full)}: ${money(s.value)}" aria-label="${esc(s.full)}: ${money(s.value)}">
+            <span class="cc-bar" style="height:${s.value ? Math.max(2, (s.value / max) * 100) : 0}%"></span>
+            <span class="cc-x">${i % every === 0 ? esc(s.label) : ''}</span>
+          </button>`
+        )
+        .join('')}</div>
+      <div class="cc-tip" hidden></div>
+    </div>`;
+  }
+
+  async function viewReport() {
+    if (CLOUD && !DB.isOwner()) {
+      app.innerHTML = '<div class="card"><h2>Laporan</h2><p>Hanya owner boleh melihat laporan jualan.</p></div>';
+      return;
+    }
+    app.innerHTML = '<p class="muted">Memuatkan laporan…</p>';
+    const jobs = await DB.allJobs({ full: true });
+    if (currentView !== 'laporan') return;
+    const [start, end, label] = periodRange(reportState.period, reportState.from, reportState.to);
+    const r = computeReport(jobs, start, end);
+    const periods = [
+      ['hari', 'Hari ini'], ['minggu', 'Minggu ini'], ['bulan', 'Bulan ini'], ['bulan_lepas', 'Bulan lepas'], ['tahun', 'Tahun ini'], ['pilih', 'Pilih tarikh…'],
+    ];
+    const rangeText = `${fmtDate(start.toISOString(), false)} – ${fmtDate(new Date(end.getTime() - 1).toISOString(), false)}`;
+    const staffRows = Object.entries(r.staff).sort((a, b) => b[1].received + b[1].pickups - (a[1].received + a[1].pickups));
+
+    app.innerHTML = `
+      <div class="report">
+        <div class="toolbar">
+          <select id="period">${periods.map(([k, l]) => `<option value="${k}" ${reportState.period === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
+          ${
+            reportState.period === 'pilih'
+              ? `<input type="date" id="dFrom" value="${esc(reportState.from)}"><input type="date" id="dTo" value="${esc(reportState.to)}">`
+              : ''
+          }
+        </div>
+        <p class="small muted">${esc(label)} · ${rangeText}</p>
+
+        <div class="stats">
+          <div class="stat"><span>${money(r.cash)}</span>Kutipan wang<small>deposit + bayaran semasa ambil</small></div>
+          <div class="stat"><span>${money(r.sales)}</span>Jualan (device diambil)<small>${r.collected} device · harga akhir</small></div>
+          <div class="stat"><span>${r.received}</span>Device diterima<small>${r.cancelled} dibatalkan</small></div>
+          <div class="stat"><span>${money(r.outstanding)}</span>Anggaran baki belum dikutip<small>${r.inShop} device masih dalam kedai</small></div>
+        </div>
+
+        <div class="card">
+          <h3>Kutipan ${r.series.length > 62 || (end - start) / DAY > 62 ? 'bulanan' : 'harian'}</h3>
+          ${columnChart(r.series)}
+          <details class="table-view"><summary class="small">Lihat jadual</summary>
+            <table class="tbl"><thead><tr><th>Tarikh</th><th class="num">Kutipan</th></tr></thead><tbody>${r.series
+              .filter((s) => s.value)
+              .map((s) => `<tr><td>${esc(s.full)}</td><td class="num">${money(s.value)}</td></tr>`)
+              .join('') || '<tr><td colspan="2" class="muted">Tiada kutipan</td></tr>'}</tbody></table>
+          </details>
+        </div>
+
+        <div class="report-grid">
+          <div class="card"><h3>Kutipan ikut cara bayaran</h3>${rankedBars(r.methods, money)}</div>
+          <div class="card"><h3>Device diterima ikut jenama</h3>${rankedBars(r.brands, (v) => v + ' unit')}</div>
+        </div>
+
+        <div class="card">
+          <h3>Prestasi staff</h3>
+          ${
+            staffRows.length
+              ? `<table class="tbl"><thead><tr><th>Staff</th><th class="num">Device diterima</th><th class="num">Serahan direkod</th></tr></thead><tbody>${staffRows
+                  .map(([k, v]) => `<tr><td>${esc(k)}</td><td class="num">${v.received}</td><td class="num">${v.pickups}</td></tr>`)
+                  .join('')}</tbody></table>`
+              : '<p class="muted small">Tiada data dalam tempoh ini.</p>'
+          }
+        </div>
+
+        <div class="card">
+          <h3>Ringkasan</h3>
+          <div class="r-row"><span>Device diterima</span><strong>${r.received}</strong></div>
+          <div class="r-row"><span>Device diambil pelanggan</span><strong>${r.collected}</strong></div>
+          <div class="r-row"><span>Dibatalkan</span><strong>${r.cancelled}</strong></div>
+          <div class="r-row"><span>Purata tempoh repair (terima → ambil)</span><strong>${r.avgDays == null ? '-' : r.avgDays.toFixed(1) + ' hari'}</strong></div>
+          <div class="r-row"><span>Deposit diterima</span><strong>${money(r.deposits)}</strong></div>
+          <div class="r-row"><span>Bayaran semasa ambil</span><strong>${money(r.paidAtPickup)}</strong></div>
+          <p class="small muted">Jualan dikira ikut tarikh device diambil (harga akhir). Kutipan wang dikira ikut tarikh wang diterima: deposit pada hari device diterima, baki pada hari device diambil.</p>
+          <button class="btn" id="btnRepCsv">📊 Eksport CSV tempoh ini</button>
+        </div>
+      </div>`;
+
+    $('#period').addEventListener('change', (e) => {
+      reportState.period = e.target.value;
+      if (reportState.period === 'pilih' && !reportState.from) {
+        const t = new Date();
+        reportState.to = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
+        reportState.from = reportState.to.slice(0, 8) + '01';
+      }
+      viewReport();
+    });
+    ['dFrom', 'dTo'].forEach((idName) => {
+      const el = document.getElementById(idName);
+      if (el)
+        el.addEventListener('change', () => {
+          reportState[idName === 'dFrom' ? 'from' : 'to'] = el.value;
+          viewReport();
+        });
+    });
+
+    // Tooltip carta (hover / tekan)
+    const chart = $('.colchart');
+    if (chart) {
+      const tip = $('.cc-tip', chart);
+      const show = (col) => {
+        tip.textContent = col.dataset.tip;
+        tip.hidden = false;
+        const cr = chart.getBoundingClientRect();
+        const r2 = col.getBoundingClientRect();
+        const x = Math.min(Math.max(r2.left - cr.left + r2.width / 2, 60), cr.width - 60);
+        tip.style.left = x + 'px';
+      };
+      chart.addEventListener('mouseover', (e) => e.target.closest('.cc-col') && show(e.target.closest('.cc-col')));
+      chart.addEventListener('focusin', (e) => e.target.closest('.cc-col') && show(e.target.closest('.cc-col')));
+      chart.addEventListener('click', (e) => e.target.closest('.cc-col') && show(e.target.closest('.cc-col')));
+      chart.addEventListener('mouseleave', () => (tip.hidden = true));
+    }
+
+    $('#btnRepCsv').addEventListener('click', () => {
+      const cell = (v) => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+      const head = ['No Resit', 'Tarikh Terima', 'Status', 'Nama', 'Jenama', 'Model', 'Staff', 'Anggaran', 'Deposit', 'Tarikh Ambil', 'Harga Akhir', 'Dibayar Semasa Ambil', 'Cara Bayaran'];
+      const lines = r.rows.map((j) =>
+        [j.id, j.createdAt, R.statusInfo(j.status).label, j.customer.name, j.device.brand, j.device.model, j.staff, j.estimate, j.deposit,
+          j.pickup ? j.pickup.at : '', j.pickup ? j.pickup.finalPrice : '', j.pickup ? j.pickup.paid : '', j.pickup ? j.pickup.method : '']
+          .map(cell)
+          .join(',')
+      );
+      const csv = '﻿' + [head.map(cell).join(',')].concat(lines).join('\r\n');
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+      a.download = `ogfix-laporan-${start.toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => a.remove(), 1000);
+    });
+  }
+
   /* ---------------- tetapan & backup ---------------- */
   async function viewSettings() {
     const editable = canEditSettings();
@@ -1032,6 +1436,10 @@
           <div class="grid2">
             <label>Prefix no. resit<input name="prefix" value="${esc(settings.prefix)}" maxlength="6"></label>
             <label>Waranti lalai (hari)<input name="warrantyDays" type="number" min="0" value="${esc(settings.warrantyDays)}"></label>
+          </div>
+          <div class="grid2">
+            <label>Peringatan "belum diambil" selepas (hari)<input name="remindDays" type="number" min="1" value="${esc(settings.remindDays)}"></label>
+            <label>Device dianggap terbiar selepas (hari)<input name="abandonDays" type="number" min="1" value="${esc(settings.abandonDays)}"></label>
           </div>
           <label>Terma & syarat (satu baris = satu syarat)<textarea name="terms" rows="8">${esc(settings.terms)}</textarea></label>
           <div class="actions"><button class="btn primary" type="submit">Simpan Tetapan</button></div>
@@ -1109,6 +1517,8 @@
         address: fd.get('address').trim(),
         prefix: (fd.get('prefix').trim() || 'OGF').toUpperCase().replace(/[^A-Z0-9]/g, '') || 'OGF',
         warrantyDays: num(fd.get('warrantyDays')),
+        remindDays: num(fd.get('remindDays')) || 3,
+        abandonDays: num(fd.get('abandonDays')) || 30,
         terms: fd.get('terms').trim(),
       };
       try {
@@ -1284,7 +1694,7 @@
   /* ---------------- start ---------------- */
   /* ---------- semakan versi: pastikan semua telefon guna versi terbaru ----------
      Bila kemaskini app: naikkan APP_VERSION, version.json dan ?v= dalam index.html/resit.html */
-  const APP_VERSION = '9';
+  const APP_VERSION = '10';
 
   async function latestVersion() {
     try {
@@ -1339,6 +1749,7 @@
       return;
     }
     if (!CLOUD) {
+      document.body.classList.add('is-owner');
       await loadSettings();
       if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
       ready = true;
