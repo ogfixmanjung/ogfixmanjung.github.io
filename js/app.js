@@ -1050,6 +1050,7 @@
 
       <div class="card">
         <h2>Backup Data</h2>
+        <p class="small muted">Versi app: ${APP_VERSION}</p>
         <p>${
           CLOUD
             ? 'Data disimpan dalam cloud (Firebase) secara automatik dan boleh diakses dari semua peranti staff. Backup di bawah adalah salinan tambahan (pilihan).'
@@ -1281,7 +1282,54 @@
   }
 
   /* ---------------- start ---------------- */
+  /* ---------- semakan versi: pastikan semua telefon guna versi terbaru ----------
+     Bila kemaskini app: naikkan APP_VERSION, version.json dan ?v= dalam index.html/resit.html */
+  const APP_VERSION = '9';
+
+  async function latestVersion() {
+    try {
+      const r = await fetch('version.json?t=' + Date.now(), { cache: 'no-store' });
+      if (!r.ok) return null;
+      return String((await r.json()).v);
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function reloadToVersion(v) {
+    const u = new URL(location.href);
+    u.searchParams.set('v', v); // URL baru = elak halaman lama dari cache browser
+    location.replace(u.toString());
+  }
+
+  async function checkUpdate(onStart) {
+    const v = await latestVersion();
+    if (!v || v === APP_VERSION) return false;
+    let tried = '';
+    try {
+      tried = sessionStorage.getItem('ogfix.reloadFor') || '';
+      sessionStorage.setItem('ogfix.reloadFor', v);
+    } catch (e) {}
+    if (onStart && tried === v) return false; // elak muat semula berulang
+    if (onStart || ['list', 'job'].includes(currentView)) {
+      reloadToVersion(v);
+      return true;
+    }
+    if (!$('#updateBar')) {
+      const bar = document.createElement('div');
+      bar.id = 'updateBar';
+      bar.innerHTML = 'Versi baru app tersedia. <button class="btn small">Kemaskini</button>';
+      bar.querySelector('button').addEventListener('click', () => reloadToVersion(v));
+      document.body.appendChild(bar);
+    }
+    return true;
+  }
+
   async function init() {
+    if (await checkUpdate(true)) return;
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') checkUpdate(false);
+    });
     window.addEventListener('hashchange', route);
     try {
       await DB.init(window.FIREBASE_CONFIG);
