@@ -167,6 +167,7 @@
         ${row('Warna', esc(d.color))}
         ${row('IMEI / Serial', esc(d.imei))}
         ${!isPublic ? row('Passcode / Pattern', esc(d.passcode)) : ''}
+        ${!isPublic && job.location && job.status !== 'diambil' ? row('📍 Lokasi simpanan', esc(job.location)) : ''}
       </section>
 
       <section><h3>Aksesori Diterima</h3>${list(

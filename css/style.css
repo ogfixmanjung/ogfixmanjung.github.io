@@ -232,3 +232,58 @@ body.modal-open { overflow: hidden; }
 
 #updateBar { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 150; background: var(--text); color: #fff; padding: 8px 10px 8px 16px; border-radius: 999px; display: flex; align-items: center; gap: 10px; font-size: 14px; box-shadow: var(--shadow); white-space: nowrap; }
 #updateBar .btn { background: var(--accent); color: #fff; border: 0; }
+
+/* ---------- nav ---------- */
+body:not(.is-owner) .owner-only { display: none; }
+@media (max-width: 520px) { .hide-sm { display: none; } }
+
+/* ---------- peringatan belum diambil ---------- */
+.remind-card { border-left: 4px solid var(--accent); }
+.remind-card summary { cursor: pointer; list-style: none; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.remind-card summary::-webkit-details-marker { display: none; }
+.remind-card summary h3 { margin: 0; }
+.remind-list { list-style: none; padding: 0; margin: 10px 0 0; }
+.remind-list li { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid var(--line); }
+.remind-main { flex: 1; min-width: 0; text-decoration: none; }
+.remind-days { font-weight: 700; color: #b45309; }
+.remind-list li.overdue .remind-days { color: var(--danger); }
+.remind-list .btn { flex: none; }
+
+/* ---------- laporan ---------- */
+.report .stat span { font-size: 22px; }
+.report .stat small { display: block; font-size: 12px; margin-top: 2px; }
+.report-grid { display: grid; gap: 16px; grid-template-columns: 1fr; }
+@media (min-width: 760px) { .report-grid { grid-template-columns: 1fr 1fr; } }
+.report-grid .card { margin-bottom: 0; }
+.report-grid + .card { margin-top: 16px; }
+.toolbar input[type=date] { flex: 1 1 140px; margin: 0; }
+
+.colchart { position: relative; padding-top: 18px; }
+.cc-max { position: absolute; top: 0; left: 0; }
+.cc-plot { display: flex; align-items: stretch; gap: 2px; height: 170px; border-bottom: 1px solid #cbd5e1; background-image: linear-gradient(to bottom, var(--line) 1px, transparent 1px); background-size: 100% 50%; }
+.cc-col { flex: 1 1 0; min-width: 0; position: relative; display: flex; justify-content: center; align-items: flex-end; background: none; border: 0; padding: 0; cursor: pointer; }
+.cc-col:hover, .cc-col:focus-visible { background: rgba(15, 23, 42, .05); outline: none; }
+.cc-bar { display: block; width: 100%; max-width: 24px; background: var(--accent); border-radius: 4px 4px 0 0; }
+.cc-x { position: absolute; top: 100%; margin-top: 4px; font-size: 11px; color: var(--muted); white-space: nowrap; }
+.cc-plot { margin-bottom: 22px; }
+.cc-tip { position: absolute; top: -6px; transform: translateX(-50%); background: var(--text); color: #fff; font-size: 12px; padding: 4px 8px; border-radius: 6px; white-space: nowrap; pointer-events: none; }
+
+.hbars { list-style: none; margin: 0; padding: 0; }
+.hbars li { display: grid; grid-template-columns: minmax(80px, 34%) 1fr auto; gap: 10px; align-items: center; padding: 5px 0; font-size: 14px; }
+.hb-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hb-track { height: 12px; }
+.hb-bar { display: block; height: 100%; background: var(--accent); border-radius: 0 4px 4px 0; }
+.hb-val { font-variant-numeric: tabular-nums; font-weight: 600; }
+
+.tbl { width: 100%; border-collapse: collapse; font-size: 14px; }
+.tbl th, .tbl td { text-align: left; padding: 7px 6px; border-bottom: 1px solid var(--line); }
+.tbl th { font-size: 12px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.tbl .num { text-align: right; font-variant-numeric: tabular-nums; }
+.table-view { margin-top: 8px; }
+.table-view summary { cursor: pointer; color: var(--muted); }
+
+/* ---------- lokasi simpanan ---------- */
+.loc { display: inline-block; font-size: 13px; font-weight: 700; color: #1d4ed8; background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 6px; padding: 1px 7px; vertical-align: middle; }
+.loc-big { font-size: 18px; background: #eff6ff; border: 2px solid #93c5fd; color: #1e3a8a; border-radius: 10px; padding: 12px 14px; margin-bottom: 12px; }
+#stForm label.small { font-weight: 600; margin: 0; }
+#stForm label.small input { margin-top: 2px; }
