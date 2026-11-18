@@ -19,6 +19,12 @@ Ini web app (PWA): boleh dibuka di browser telefon, tablet atau PC, dan boleh di
 - **Tetapan kedai**: nama, alamat, telefon, prefix no. resit, waranti lalai dan terma & syarat.
 - **Backup / Pulih** data (fail JSON) dan **Eksport CSV** untuk dibuka dalam Excel.
 - **Cetak / Simpan PDF** jika perlu.
+- **Link resit pendek** (mod cloud) yang sentiasa tunjuk status terkini, dan **Simpan Resit** sebagai gambar atau PDF.
+- **Kod Ambil 4 digit**: ditulis pada sticker device, dan disemak semasa serahan.
+- **Lokasi simpanan** (rak/tray), **PIC repair** (technician), dan **pattern lock** yang dilukis dengan jari.
+- **Pelanggan lama & claim waranti**: bila no. telefon ditaip, nama diisi sendiri, sejarah repair dipapar, dan claim waranti dipautkan ke resit asal.
+- **Kerja saya**: senarai kerja setiap technician, dengan butang status pantas dan butang *Ambil kerja ini*.
+- **Peringatan device belum diambil**, **minta review Google** selepas serahan, dan **Laporan** jualan / PIC / claim waranti.
 
 ## Cara online-kan (percuma, guna GitHub Pages)
 
@@ -26,7 +32,7 @@ Ini web app (PWA): boleh dibuka di browser telefon, tablet atau PC, dan boleh di
 2. Di GitHub, buka repo ini → **Settings** → **Pages**.
 3. Di bawah *Build and deployment*, pilih **Source: Deploy from a branch**, kemudian **Branch: `main`** dan folder **`/ (root)`**. Tekan **Save**.
 4. Selepas 1–2 minit, app boleh dibuka di
-   `https://<username>.github.io/SYSTEM-TERIMA-DEVICE-OGFIX/`
+   **https://ogfixmanjung.github.io/**
 5. Buka link tersebut di telefon/tablet kaunter, kemudian:
    - **Android (Chrome)**: menu ⋮ → *Add to Home screen* / *Install app*
    - **iPhone (Safari)**: butang Share → *Add to Home Screen*
