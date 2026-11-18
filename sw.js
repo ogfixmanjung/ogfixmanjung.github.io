@@ -1,5 +1,5 @@
 /* Service worker: membolehkan app dibuka tanpa internet (offline). */
-const CACHE = 'ogfix-v7';
+const CACHE = 'ogfix-v8';
 const ASSETS = [
   './',
   './index.html',
@@ -12,6 +12,7 @@ const ASSETS = [
   './js/render.js',
   './js/app.js',
   './js/logo.js',
+  './js/export.js',
   './img/favicon.png',
   './img/icon-192.png',
   './manifest.webmanifest',

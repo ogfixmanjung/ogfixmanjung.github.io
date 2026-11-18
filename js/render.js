@@ -32,9 +32,15 @@
     return STATUS.find((s) => s.key === key) || { key, label: key, color: '#475569' };
   }
 
+  /* Warna lut sinar tanpa color-mix() (supaya boleh dijana sebagai gambar/PDF) */
+  function tint(hex, a) {
+    const n = parseInt(hex.slice(1), 16);
+    return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+  }
+
   function badge(key) {
     const s = statusInfo(key);
-    return `<span class="badge" style="--c:${s.color}">${esc(s.label)}</span>`;
+    return `<span class="badge" style="color:${s.color};background:${tint(s.color, 0.1)};border-color:${tint(s.color, 0.35)}">${esc(s.label)}</span>`;
   }
 
   function money(n) {
@@ -96,7 +102,7 @@
       .reverse()
       .map(
         (h) => `<li>
-          <div class="tl-dot" style="--c:${statusInfo(h.status).color}"></div>
+          <div class="tl-dot" style="background:${statusInfo(h.status).color};box-shadow:0 0 0 3px ${tint(statusInfo(h.status).color, 0.2)}"></div>
           <div><strong>${esc(statusInfo(h.status).label)}</strong>
           <div class="muted small">${fmtDate(h.at)}</div>
           ${h.note ? `<div class="small">${esc(h.note)}</div>` : ''}</div>
@@ -250,7 +256,7 @@
         deposit: job.deposit,
         eta: job.eta,
         staff: job.staff,
-        history: job.history,
+        history: (job.history || []).map((h) => ({ status: h.status, at: h.at, note: h.note || '' })),
         signed: !!job.signIn,
         pickup: pk,
       },
@@ -258,10 +264,25 @@
     };
   }
 
+  /* Link resit untuk pelanggan.
+     - Mod cloud: link pendek ?id=<token>, data resit diambil dari cloud (status sentiasa terkini)
+     - Mod tempatan: data resit dimasukkan dalam link (#r=...) */
   function customerLink(job, shop) {
     const base = new URL('resit.html', location.href);
+    if (job.receiptToken) {
+      base.search = 'id=' + job.receiptToken;
+      return base.toString();
+    }
     base.hash = 'r=' + b64urlEncode(JSON.stringify(publicPayload(job, shop)));
     return base.toString();
+  }
+
+  function newReceiptToken() {
+    const b = new Uint8Array(16);
+    crypto.getRandomValues(b);
+    let bin = '';
+    b.forEach((x) => (bin += String.fromCharCode(x)));
+    return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   }
 
   function decodeCustomerHash(hash) {
@@ -286,5 +307,7 @@
     renderReceipt,
     customerLink,
     decodeCustomerHash,
+    publicPayload,
+    newReceiptToken,
   };
 })();

@@ -74,6 +74,15 @@ service cloud.firestore {
       allow read, create, update, delete: if isStaff();
     }
 
+    // Resit pelanggan (link pendek): sesiapa yang ada link boleh baca SATU resit itu,
+    // tetapi tidak boleh senaraikan resit lain. Tiada passcode/gambar/tandatangan di sini.
+    match /receipts/{token} {
+      allow get: if true;
+      allow list: if false;
+      allow create, update: if isStaff();
+      allow delete: if isOwner();
+    }
+
     match /counters/{id} {
       allow read, write: if isStaff();
     }

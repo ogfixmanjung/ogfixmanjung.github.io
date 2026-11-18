@@ -7,32 +7,20 @@
   <meta name="robots" content="noindex">
   <meta name="theme-color" content="#000000">
   <link rel="icon" href="img/favicon.png" type="image/png">
-  <link rel="stylesheet" href="css/style.css?v=7">
+  <link rel="stylesheet" href="css/style.css?v=8">
 </head>
 <body class="public">
   <main id="app"></main>
-  <script src="js/logo.js?v=7"></script>
-  <script src="js/render.js?v=7"></script>
+  <script src="js/config.js?v=8"></script>
+  <script src="js/logo.js?v=8"></script>
+  <script src="js/render.js?v=8"></script>
+  <script src="js/export.js?v=8"></script>
   <script>
     window.addEventListener('hashchange', function () { location.reload(); });
     (function () {
       var app = document.getElementById('app');
-      var data = R.decodeCustomerHash(location.hash);
-      if (!data || !data.job) {
-        app.innerHTML = '<div class="card"><h2>Resit tidak sah</h2><p>Link resit ini tidak lengkap atau rosak. Sila hubungi kedai.</p></div>';
-        return;
-      }
-      document.title = 'Resit ' + data.job.id + ' – ' + (data.shop.name || 'OGFIX');
-      app.innerHTML =
-        R.renderReceipt(data.job, data.shop, { isPublic: true }) +
-        '<div class="public-actions">' +
-        (data.shop.phone
-          ? '<a class="btn wa" href="https://wa.me/' + waPhone(data.shop.phone) + '?text=' +
-            encodeURIComponent('Salam, saya ingin bertanya tentang device saya. No. Resit: ' + data.job.id) +
-            '" target="_blank" rel="noopener">💬 Hubungi kedai</a>'
-          : '') +
-        '<button class="btn" onclick="window.print()">🖨 Simpan PDF</button></div>' +
-        '<p class="small muted center">Status dalam resit ini adalah status semasa link dihantar. Link terbaru akan dihantar oleh kedai setiap kali status berubah.</p>';
+      var id = new URLSearchParams(location.search).get('id');
+      var cfg = window.FIREBASE_CONFIG;
 
       function waPhone(p) {
         var d = String(p || '').replace(/\D/g, '');
@@ -40,6 +28,61 @@
         else if (d.charAt(0) === '1') d = '60' + d;
         return d;
       }
+
+      function fail(title, msg) {
+        app.innerHTML = '<div class="card"><h2>' + title + '</h2><p>' + msg + '</p>' +
+          (id ? '<button class="btn" onclick="location.reload()">Cuba Lagi</button>' : '') + '</div>';
+      }
+
+      function show(data, live) {
+        document.title = 'Resit ' + data.job.id + ' – ' + (data.shop.name || 'OGFIX');
+        app.innerHTML =
+          R.renderReceipt(data.job, data.shop, { isPublic: true }) +
+          '<div class="public-actions">' +
+          '<button class="btn primary" id="btnSave">💾 Simpan Resit</button>' +
+          (data.shop.phone
+            ? '<a class="btn wa" href="https://wa.me/' + waPhone(data.shop.phone) + '?text=' +
+              encodeURIComponent('Salam, saya ingin bertanya tentang device saya. No. Resit: ' + data.job.id) +
+              '" target="_blank" rel="noopener">💬 Hubungi kedai</a>'
+            : '') +
+          '</div>' +
+          '<p class="small muted center">' +
+          (live
+            ? 'Status dalam resit ini dikemaskini secara automatik. Buka semula link ini untuk melihat status terkini.'
+            : 'Status dalam resit ini adalah status semasa link dihantar.') +
+          '</p>';
+        document.getElementById('btnSave').addEventListener('click', function () {
+          ReceiptExport.open(document.querySelector('.receipt'), 'Resit-' + data.job.id);
+        });
+      }
+
+      if (id && cfg) {
+        // Link pendek: ambil resit dari cloud
+        app.innerHTML = '<p class="muted center">Memuatkan resit…</p>';
+        var host = String(cfg.projectId).indexOf('demo-') === 0 ? 'http://127.0.0.1:8080' : 'https://firestore.googleapis.com';
+        var url = host + '/v1/projects/' + cfg.projectId +
+          '/databases/(default)/documents/receipts/' + encodeURIComponent(id) + '?key=' + cfg.apiKey;
+        fetch(url)
+          .then(function (r) {
+            if (r.status === 404 || r.status === 403) throw 'notfound';
+            if (!r.ok) throw 'net';
+            return r.json();
+          })
+          .then(function (doc) {
+            var data = JSON.parse(doc.fields.data.stringValue);
+            if (!data || !data.job) throw 'notfound';
+            show(data, true);
+          })
+          .catch(function (e) {
+            if (e === 'notfound') fail('Resit tidak dijumpai', 'Resit ini mungkin telah dipadam. Sila hubungi kedai.');
+            else fail('Tidak dapat memuatkan resit', 'Semak sambungan internet anda dan cuba lagi.');
+          });
+        return;
+      }
+
+      var data = R.decodeCustomerHash(location.hash);
+      if (!data || !data.job) return fail('Resit tidak sah', 'Link resit ini tidak lengkap atau rosak. Sila hubungi kedai.');
+      show(data, false);
     })();
   </script>
 </body>

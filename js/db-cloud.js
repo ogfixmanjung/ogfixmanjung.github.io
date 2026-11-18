@@ -234,7 +234,8 @@
     },
 
     /* photos: array dataURL (jika undefined, gambar sedia ada tidak diubah) */
-    async putJob(job, photos) {
+    /* receipt: salinan resit untuk pelanggan (tanpa passcode/gambar/tandatangan) */
+    async putJob(job, photos, receipt) {
       const data = Object.assign({}, job);
       delete data.photos;
       data.active = data.status !== 'diambil';
@@ -248,6 +249,12 @@
         data.photoCount = photos.length;
       }
       batch.set(fs.collection('jobs').doc(job.id), JSON.parse(JSON.stringify(data)));
+      if (receipt && job.receiptToken) {
+        batch.set(fs.collection('receipts').doc(job.receiptToken), {
+          data: JSON.stringify(receipt),
+          updatedAt: new Date().toISOString(),
+        });
+      }
       maps.full.set(job.id, data);
       return settle(batch.commit());
     },
@@ -258,6 +265,7 @@
       for (let i = 0; i < Number((job && job.photoCount) || 0); i++)
         batch.delete(fs.collection('photos').doc(`${id}__${i}`));
       batch.delete(fs.collection('jobs').doc(id));
+      if (job && job.receiptToken) batch.delete(fs.collection('receipts').doc(job.receiptToken));
       await batch.commit();
       maps.full.delete(id);
     },
