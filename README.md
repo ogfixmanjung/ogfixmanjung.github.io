@@ -120,6 +120,7 @@ Dalam mod tempatan, data disimpan **dalam browser peranti yang digunakan**. Buat
 | `js/db.js` | Pilih mod simpanan |
 | `firestore.rules` | Peraturan keselamatan database (salin ke Firebase Console) |
 | `css/style.css` | Reka bentuk |
-| `sw.js`, `manifest.webmanifest`, `icon.svg` | Fungsi PWA (install & offline) |
+| `sw.js`, `manifest.webmanifest` | Fungsi PWA (install & offline) |
+| `img/` | Logo ogfix. & ikon apps |
 
 Untuk cuba di komputer sendiri: `python3 -m http.server 8000`, kemudian buka `http://localhost:8000`.

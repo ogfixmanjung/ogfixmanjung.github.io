@@ -142,7 +142,7 @@
 
     return `<article class="receipt">
       <header class="r-head">
-        <div class="r-shop">${esc(shop.name || 'OGFIX')}</div>
+        <img class="r-logo" src="img/logo-black.png" alt="${esc(shop.name || 'ogfix.')}">
         ${shop.address ? `<div class="small">${esc(shop.address)}</div>` : ''}
         ${shop.phone ? `<div class="small">Tel: ${esc(shop.phone)}</div>` : ''}
         <div class="r-title">RESIT PENERIMAAN DEVICE</div>
