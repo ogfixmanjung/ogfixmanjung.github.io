@@ -275,6 +275,91 @@
     });
   }
 
+  /* Pad pattern 3x3 – pelanggan lukis dengan jari. seq: titik 1-9 */
+  function patternPad(el, initial, onChange) {
+    const xy = (n) => [((n - 1) % 3) * 100 + 50, Math.floor((n - 1) / 3) * 100 + 50];
+    el.innerHTML = `<svg viewBox="0 0 300 300">
+      <polyline class="pp-line" points=""/>
+      <line class="pp-live" x1="0" y1="0" x2="0" y2="0" visibility="hidden"/>
+      ${[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => `<circle class="pp-dot" data-n="${n}" cx="${xy(n)[0]}" cy="${xy(n)[1]}" r="14"/>`).join('')}
+    </svg>`;
+    const svg = el.querySelector('svg');
+    const lineEl = el.querySelector('.pp-line');
+    const live = el.querySelector('.pp-live');
+    let seq = initial.slice();
+    let drawing = false;
+
+    const toSvg = (e) => {
+      const r = svg.getBoundingClientRect();
+      return [((e.clientX - r.left) / r.width) * 300, ((e.clientY - r.top) / r.height) * 300];
+    };
+    const render = () => {
+      lineEl.setAttribute('points', seq.map((n) => xy(n).join(',')).join(' '));
+      el.querySelectorAll('.pp-dot').forEach((c) => {
+        const k = seq.indexOf(Number(c.dataset.n));
+        c.classList.toggle('on', k >= 0);
+        c.classList.toggle('first', k === 0);
+      });
+    };
+    const add = (n) => {
+      if (seq.includes(n)) return;
+      const last = seq[seq.length - 1];
+      if (last) {
+        // Lalu atas titik tengah (cth 1→3 melalui 2) – sama seperti Android
+        const [r1, c1, r2, c2] = [Math.floor((last - 1) / 3), (last - 1) % 3, Math.floor((n - 1) / 3), (n - 1) % 3];
+        if ((r1 + r2) % 2 === 0 && (c1 + c2) % 2 === 0) {
+          const mid = ((r1 + r2) / 2) * 3 + (c1 + c2) / 2 + 1;
+          if (!seq.includes(mid)) seq.push(mid);
+        }
+      }
+      seq.push(n);
+      if (navigator.vibrate) navigator.vibrate(10);
+    };
+    const hit = (e) => {
+      const [x, y] = toSvg(e);
+      for (let n = 1; n <= 9; n++) {
+        const [cx, cy] = xy(n);
+        if ((x - cx) ** 2 + (y - cy) ** 2 < 34 ** 2) add(n);
+      }
+      const last = seq[seq.length - 1];
+      if (last) {
+        const [lx, ly] = xy(last);
+        live.setAttribute('x1', lx);
+        live.setAttribute('y1', ly);
+        live.setAttribute('x2', x);
+        live.setAttribute('y2', y);
+        live.setAttribute('visibility', 'visible');
+      }
+      render();
+    };
+    svg.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      svg.setPointerCapture(e.pointerId);
+      seq = [];
+      drawing = true;
+      hit(e);
+    });
+    svg.addEventListener('pointermove', (e) => drawing && hit(e));
+    const end = () => {
+      if (!drawing) return;
+      drawing = false;
+      live.setAttribute('visibility', 'hidden');
+      render();
+      onChange(seq.slice());
+    };
+    svg.addEventListener('pointerup', end);
+    svg.addEventListener('pointercancel', end);
+    render();
+    return {
+      get: () => seq.slice(),
+      clear: () => {
+        seq = [];
+        render();
+        onChange([]);
+      },
+    };
+  }
+
   /* Pad tandatangan (jari / mouse) */
   function signaturePad(canvas) {
     const ctx = canvas.getContext('2d');
@@ -673,7 +758,20 @@
             <label>IMEI / Serial No.<input name="imei" value="${esc(j.device.imei)}" inputmode="numeric" placeholder="Dail *#06#"></label>
           </div>
           <label>📍 Lokasi simpanan device<input name="location" value="${esc(j.location)}" placeholder="cth: Rak A2, Laci 3, Tray 15" autocomplete="off"></label>
-          <label>Passcode / Pattern (untuk ujian)<input name="passcode" value="${esc(j.device.passcode)}" autocomplete="off" placeholder="Tidak akan dipapar pada resit customer"></label>
+          <div class="pc-block">
+            <div class="sig-label">Kunci skrin device (untuk ujian)</div>
+            <div class="seg">
+              <label><input type="radio" name="pcType" value="none" ${!j.device.passcode ? 'checked' : ''}><span>Tiada</span></label>
+              <label><input type="radio" name="pcType" value="pin" ${j.device.passcode && !R.isPattern(j.device.passcode) ? 'checked' : ''}><span>PIN / Kata laluan</span></label>
+              <label><input type="radio" name="pcType" value="pattern" ${R.isPattern(j.device.passcode) ? 'checked' : ''}><span>Pattern</span></label>
+            </div>
+            <div id="pcPin" hidden><input name="passcode" value="${esc(R.isPattern(j.device.passcode) ? '' : j.device.passcode)}" autocomplete="off" placeholder="cth: 123456"></div>
+            <div id="pcPattern" hidden>
+              <div class="pattern-pad" id="patternPad"></div>
+              <div class="pattern-info"><span id="patternText" class="small"></span><button type="button" class="btn small" id="patternClear">Lukis semula</button></div>
+            </div>
+            <p class="small muted">Tidak dipapar pada resit pelanggan. Dipadam automatik selepas device diambil.</p>
+          </div>
           <datalist id="brands">${['Apple', 'Samsung', 'Xiaomi', 'Redmi', 'Oppo', 'Vivo', 'Realme', 'Huawei', 'Honor', 'Infinix', 'Poco', 'OnePlus', 'Google', 'Nokia']
             .map((b) => `<option value="${b}">`)
             .join('')}</datalist>
@@ -731,6 +829,23 @@
         </div>
       </form>`;
 
+    // Kunci skrin: Tiada / PIN / Pattern
+    const pPad = patternPad($('#patternPad'), R.patternSeq(j.device.passcode), (seq) => showPatternText(seq));
+    function showPatternText(seq) {
+      $('#patternText').textContent = seq.length
+        ? `Pattern: ${seq.join(' → ')}${seq.length < 4 ? ' (minimum 4 titik)' : ''}`
+        : 'Minta pelanggan lukis pattern di atas dengan jari';
+    }
+    showPatternText(pPad.get());
+    $('#patternClear').addEventListener('click', () => pPad.clear());
+    const showPc = () => {
+      const t = ($('#form [name=pcType]:checked') || {}).value || 'none';
+      $('#pcPin').hidden = t !== 'pin';
+      $('#pcPattern').hidden = t !== 'pattern';
+    };
+    $$('#form [name=pcType]').forEach((r) => r.addEventListener('change', showPc));
+    showPc();
+
     const pad = job ? null : signaturePad($('#sig'));
     if (pad) $('#sigClear').addEventListener('click', () => pad.clear());
 
@@ -770,6 +885,10 @@
       if (!fd.get('brand').trim()) errors.push('Jenama');
       if (!fd.get('model').trim()) errors.push('Model');
       if (!fd.get('problem').trim()) errors.push('Masalah dilaporkan');
+      const pcType = fd.get('pcType') || 'none';
+      const patSeq = pPad.get();
+      if (pcType === 'pattern' && patSeq.length < 4) errors.push('Pattern (minimum 4 titik)');
+      if (pcType === 'pin' && !fd.get('passcode').trim()) errors.push('PIN / kata laluan');
       if (!job) {
         if (!fd.get('agree')) errors.push('Persetujuan terma & syarat');
         if (pad.isEmpty()) errors.push('Tandatangan pelanggan');
@@ -794,7 +913,7 @@
           model: fd.get('model').trim(),
           color: fd.get('color').trim(),
           imei: fd.get('imei').trim(),
-          passcode: fd.get('passcode').trim(),
+          passcode: pcType === 'pin' ? fd.get('passcode').trim() : pcType === 'pattern' ? 'P:' + patSeq.join('-') : '',
         },
         accessories: fd.getAll('acc'),
         accessoriesOther: fd.get('accOther').trim(),
@@ -1782,7 +1901,7 @@
   /* ---------------- start ---------------- */
   /* ---------- semakan versi: pastikan semua telefon guna versi terbaru ----------
      Bila kemaskini app: naikkan APP_VERSION, version.json dan ?v= dalam index.html/resit.html */
-  const APP_VERSION = '12';
+  const APP_VERSION = '13';
 
   async function latestVersion() {
     try {
