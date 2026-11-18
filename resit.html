@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="ms">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Resit Digital</title>
+  <meta name="robots" content="noindex">
+  <meta name="theme-color" content="#0f172a">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body class="public">
+  <main id="app"></main>
+  <script src="js/render.js"></script>
+  <script>
+    window.addEventListener('hashchange', function () { location.reload(); });
+    (function () {
+      var app = document.getElementById('app');
+      var data = R.decodeCustomerHash(location.hash);
+      if (!data || !data.job) {
+        app.innerHTML = '<div class="card"><h2>Resit tidak sah</h2><p>Link resit ini tidak lengkap atau rosak. Sila hubungi kedai.</p></div>';
+        return;
+      }
+      document.title = 'Resit ' + data.job.id + ' – ' + (data.shop.name || 'OGFIX');
+      app.innerHTML =
+        R.renderReceipt(data.job, data.shop, { isPublic: true }) +
+        '<div class="public-actions">' +
+        (data.shop.phone
+          ? '<a class="btn wa" href="https://wa.me/' + waPhone(data.shop.phone) + '?text=' +
+            encodeURIComponent('Salam, saya ingin bertanya tentang device saya. No. Resit: ' + data.job.id) +
+            '" target="_blank" rel="noopener">💬 Hubungi kedai</a>'
+          : '') +
+        '<button class="btn" onclick="window.print()">🖨 Simpan PDF</button></div>' +
+        '<p class="small muted center">Status dalam resit ini adalah status semasa link dihantar. Link terbaru akan dihantar oleh kedai setiap kali status berubah.</p>';
+
+      function waPhone(p) {
+        var d = String(p || '').replace(/\D/g, '');
+        if (d.charAt(0) === '0') d = '6' + d;
+        else if (d.charAt(0) === '1') d = '60' + d;
+        return d;
+      }
+    })();
+  </script>
+</body>
+</html>

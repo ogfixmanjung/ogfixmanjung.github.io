@@ -1,0 +1,14 @@
+{
+  "name": "OGFIX – Terima Device",
+  "short_name": "OGFIX",
+  "description": "Sistem terima device repair dengan resit digital",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f1f5f9",
+  "theme_color": "#0f172a",
+  "lang": "ms",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
