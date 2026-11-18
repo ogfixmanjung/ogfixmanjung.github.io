@@ -2,6 +2,7 @@
 (function () {
   const { STATUS, DEFAULT_TERMS, esc, badge, money, fmtDate, renderReceipt, customerLink } = window.R;
   const app = document.getElementById('app');
+  const CLOUD = DB.mode === 'cloud';
 
   const ACCESSORIES = ['Kad SIM', 'Memory Card', 'Casing / Cover', 'Charger', 'Kabel', 'Kotak', 'Tempered Glass', 'Pen / Stylus'];
   const CONDITIONS = [
@@ -18,8 +19,12 @@
     'Keadaan baik',
   ];
   const PAY_METHODS = ['Tunai', 'Online Transfer', 'DuitNow QR', 'Kad Debit/Kredit', 'E-Wallet'];
+  const DEFAULT_SETTINGS = { name: 'OGFIX', phone: '', address: '', prefix: 'OGF', warrantyDays: 30, terms: DEFAULT_TERMS };
 
-  let settings = null;
+  let settings = Object.assign({}, DEFAULT_SETTINGS);
+  let ready = false;
+  let currentView = '';
+  let listRefresh = null;
 
   /* ---------------- util ---------------- */
   const $ = (sel, root = document) => root.querySelector(sel);
@@ -35,7 +40,15 @@
     t.textContent = msg;
     t.classList.add('show');
     clearTimeout(toast._h);
-    toast._h = setTimeout(() => t.classList.remove('show'), 2600);
+    toast._h = setTimeout(() => t.classList.remove('show'), 2800);
+  }
+
+  function errMsg(err) {
+    return DB.friendlyError ? DB.friendlyError(err) : (err && err.message) || String(err);
+  }
+
+  function savedToast(result, msg) {
+    toast(result === 'pending' ? msg + ' (offline – akan sync bila ada internet)' : msg);
   }
 
   function num(v) {
@@ -51,6 +64,14 @@
     return d;
   }
 
+  function me() {
+    return CLOUD ? DB.userName() : '';
+  }
+
+  function canEditSettings() {
+    return !CLOUD || DB.isOwner();
+  }
+
   async function nextId() {
     const prefix = (settings.prefix || 'OGF').toUpperCase();
     const now = new Date();
@@ -58,16 +79,10 @@
       String(now.getFullYear()).slice(2) +
       String(now.getMonth() + 1).padStart(2, '0') +
       String(now.getDate()).padStart(2, '0');
-    const head = `${prefix}-${ymd}-`;
-    const jobs = await DB.allJobs();
-    let max = 0;
-    jobs.forEach((j) => {
-      if (j.id.startsWith(head)) max = Math.max(max, parseInt(j.id.slice(head.length), 10) || 0);
-    });
-    return head + String(max + 1).padStart(3, '0');
+    return DB.nextId(`${prefix}-${ymd}-`);
   }
 
-  function resizeImage(file, maxSide = 1280, quality = 0.7) {
+  function resizeImage(file, maxSide = 1024, quality = 0.6) {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
       reader.onerror = reject;
@@ -147,11 +162,13 @@
 
   /* ---------------- router ---------------- */
   async function route() {
+    if (!ready) return;
     const hash = location.hash.replace(/^#\/?/, '');
     const [path, query] = hash.split('?');
     const parts = path.split('/').filter(Boolean);
     $$('.nav a').forEach((a) => a.classList.toggle('active', a.getAttribute('href') === '#/' + (parts[0] || '')));
     window.scrollTo(0, 0);
+    currentView = parts[0] || 'list';
     try {
       if (!parts.length) return await viewList();
       if (parts[0] === 'baru') return await viewForm();
@@ -162,7 +179,108 @@
       app.innerHTML = '<p>Halaman tidak dijumpai.</p>';
     } catch (err) {
       console.error(err);
-      app.innerHTML = `<div class="card"><h2>Ralat</h2><p>${esc(err.message || err)}</p></div>`;
+      app.innerHTML = `<div class="card"><h2>Ralat</h2><p>${esc(errMsg(err))}</p></div>`;
+    }
+  }
+
+  /* ---------------- login (mod cloud) ---------------- */
+  function setLoggedIn(on) {
+    document.body.classList.toggle('logged-out', !on);
+  }
+
+  function viewLogin(message) {
+    ready = false;
+    setLoggedIn(false);
+    app.innerHTML = `
+      <form id="loginForm" class="card form login">
+        <h2>Log Masuk Staff</h2>
+        <p class="muted small">Log masuk untuk akses rekod device kedai.</p>
+        <label>Email<input name="email" type="email" autocomplete="username" required></label>
+        <label>Password<input name="pw" type="password" autocomplete="current-password" required minlength="6"></label>
+        <div class="form-error" id="loginMsg" ${message ? '' : 'hidden'}>${esc(message || '')}</div>
+        <button class="btn primary block" type="submit">Log Masuk</button>
+        <div class="login-links">
+          <button type="button" class="linkbtn" id="btnRegister">Staff baru? Daftar akaun</button>
+          <button type="button" class="linkbtn" id="btnReset">Lupa password</button>
+        </div>
+      </form>`;
+    const f = $('#loginForm');
+    const msg = (t, ok) => {
+      const b = $('#loginMsg');
+      b.hidden = false;
+      b.classList.toggle('ok', !!ok);
+      b.textContent = t;
+    };
+    const vals = () => ({ email: f.email.value.trim(), pw: f.pw.value });
+    f.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const { email, pw } = vals();
+      if (!email || !pw) return msg('Sila isi email dan password.');
+      try {
+        f.querySelector('[type=submit]').disabled = true;
+        await DB.signIn(email, pw);
+      } catch (err) {
+        msg(errMsg(err));
+      } finally {
+        f.querySelector('[type=submit]').disabled = false;
+      }
+    });
+    $('#btnRegister').addEventListener('click', async () => {
+      const { email, pw } = vals();
+      if (!email || pw.length < 6) return msg('Isi email dan password (minimum 6 aksara), kemudian tekan "Daftar akaun" semula.');
+      try {
+        await DB.register(email, pw);
+      } catch (err) {
+        msg(errMsg(err));
+      }
+    });
+    $('#btnReset').addEventListener('click', async () => {
+      const { email } = vals();
+      if (!email) return msg('Isi email dahulu, kemudian tekan "Lupa password".');
+      try {
+        await DB.resetPassword(email);
+        msg('Email untuk tukar password telah dihantar ke ' + email + '. Semak inbox / spam.', true);
+      } catch (err) {
+        msg(errMsg(err));
+      }
+    });
+  }
+
+  function viewPending() {
+    ready = false;
+    setLoggedIn(false);
+    const u = DB.currentUser();
+    app.innerHTML = `
+      <div class="card form login">
+        <h2>Menunggu Kelulusan</h2>
+        <p>Akaun <strong>${esc(u && u.email)}</strong> telah didaftarkan tetapi belum diluluskan.</p>
+        <p>Minta owner kedai buka <strong>Tetapan → Staff</strong> dan tambah email ini. Kemudian tekan <em>Semak Semula</em>.</p>
+        <div class="btn-col">
+          <button class="btn primary" id="btnRecheck">Semak Semula</button>
+          <button class="btn" id="btnOut">Log Keluar</button>
+        </div>
+      </div>`;
+    $('#btnRecheck').addEventListener('click', () => enterSession(u));
+    $('#btnOut').addEventListener('click', () => DB.signOut());
+  }
+
+  async function enterSession(u) {
+    ready = false;
+    if (!u) return viewLogin();
+    app.innerHTML = '<p class="muted">Memuatkan data…</p>';
+    try {
+      const role = await DB.startSession();
+      if (role === 'pending') return viewPending();
+      await loadSettings();
+      setLoggedIn(true);
+      ready = true;
+      route();
+    } catch (err) {
+      console.error(err);
+      app.innerHTML = `<div class="card login"><h2>Tidak dapat sambung</h2><p>${esc(errMsg(err))}</p>
+        <div class="btn-col"><button class="btn primary" id="btnRetry">Cuba Lagi</button><button class="btn" id="btnOut">Log Keluar</button></div></div>`;
+      $('#btnRetry').addEventListener('click', () => enterSession(u));
+      $('#btnOut').addEventListener('click', () => DB.signOut());
     }
   }
 
@@ -170,41 +288,58 @@
   let listFilter = { q: '', status: 'aktif' };
 
   async function viewList() {
-    const jobs = await DB.allJobs();
-    const counts = {};
-    jobs.forEach((j) => (counts[j.status] = (counts[j.status] || 0) + 1));
-    const active = jobs.filter((j) => !['diambil', 'batal'].includes(j.status)).length;
-
-    const filters = [
-      { key: 'aktif', label: `Aktif (${active})` },
-      { key: 'semua', label: `Semua (${jobs.length})` },
-    ].concat(STATUS.map((s) => ({ key: s.key, label: `${s.label} (${counts[s.key] || 0})` })));
-
     app.innerHTML = `
-      <div class="stats">
+      <div class="stats" id="stats"></div>
+      <div class="toolbar">
+        <input type="search" id="q" placeholder="Cari no. resit, nama, telefon, IMEI, model…" value="${esc(listFilter.q)}">
+        <select id="f"></select>
+      </div>
+      <div id="list"><div class="empty">Memuatkan…</div></div>`;
+
+    const needFull = () =>
+      CLOUD && !DB.isFullLoaded() && (listFilter.q.trim() !== '' || listFilter.status !== 'aktif');
+
+    const refresh = async () => {
+      const full = needFull();
+      if (full) $('#list').innerHTML = '<div class="empty">Memuatkan semua rekod…</div>';
+      const jobs = await DB.allJobs({ full });
+      if (currentView !== 'list' || !$('#list')) return;
+      draw(jobs);
+    };
+    listRefresh = refresh;
+
+    const draw = (jobs) => {
+      const counts = {};
+      jobs.forEach((j) => (counts[j.status] = (counts[j.status] || 0) + 1));
+      const isActive = (j) => !['diambil', 'batal'].includes(j.status);
+      const active = jobs.filter(isActive).length;
+      const today = new Date().toDateString();
+
+      $('#stats').innerHTML = `
         <div class="stat"><span>${active}</span>Device dalam kedai</div>
         <div class="stat"><span>${counts.siap || 0}</span>Siap, belum ambil</div>
         <div class="stat"><span>${counts.menunggu_part || 0}</span>Menunggu part</div>
-        <div class="stat"><span>${jobs.filter((j) => new Date(j.createdAt).toDateString() === new Date().toDateString()).length}</span>Diterima hari ini</div>
-      </div>
-      <div class="toolbar">
-        <input type="search" id="q" placeholder="Cari no. resit, nama, telefon, IMEI, model…" value="${esc(listFilter.q)}">
-        <select id="f">${filters
-          .map((f) => `<option value="${f.key}" ${listFilter.status === f.key ? 'selected' : ''}>${esc(f.label)}</option>`)
-          .join('')}</select>
-      </div>
-      <div id="list"></div>`;
+        <div class="stat"><span>${jobs.filter((j) => new Date(j.createdAt).toDateString() === today).length}</span>Diterima hari ini</div>`;
 
-    const draw = () => {
+      const partial = CLOUD && !DB.isFullLoaded();
+      const filters = [
+        { key: 'aktif', label: `Aktif (${active})` },
+        { key: 'semua', label: partial ? 'Semua rekod' : `Semua (${jobs.length})` },
+      ].concat(STATUS.map((s) => ({ key: s.key, label: s.label + (partial && !isActive({ status: s.key }) ? '' : ` (${counts[s.key] || 0})`) })));
+      $('#f').innerHTML = filters
+        .map((f) => `<option value="${f.key}" ${listFilter.status === f.key ? 'selected' : ''}>${esc(f.label)}</option>`)
+        .join('');
+
       const q = listFilter.q.trim().toLowerCase();
+      const qDigits = q.replace(/\D/g, '');
       const out = jobs.filter((j) => {
-        if (listFilter.status === 'aktif' && ['diambil', 'batal'].includes(j.status)) return false;
+        if (listFilter.status === 'aktif' && !isActive(j)) return false;
         if (!['aktif', 'semua'].includes(listFilter.status) && j.status !== listFilter.status) return false;
         if (!q) return true;
         const hay = [j.id, j.customer.name, j.customer.phone, j.device.brand, j.device.model, j.device.imei, j.problem]
           .join(' ')
           .toLowerCase();
-        return hay.includes(q) || hay.replace(/\D/g, '').includes(q.replace(/\D/g, '') || '§');
+        return hay.includes(q) || (qDigits.length >= 3 && hay.replace(/\D/g, '').includes(qDigits));
       });
       $('#list').innerHTML = out.length
         ? out
@@ -219,26 +354,32 @@
             )
             .join('')
         : `<div class="empty">${
-            jobs.length ? 'Tiada rekod yang sepadan.' : 'Belum ada device diterima.<br><a class="btn primary" href="#/baru">+ Terima Device Pertama</a>'
+            jobs.length || q || listFilter.status !== 'aktif'
+              ? 'Tiada rekod yang sepadan.'
+              : 'Belum ada device dalam kedai.<br><a class="btn primary" href="#/baru">+ Terima Device</a>'
           }</div>`;
     };
+
+    let t;
     $('#q').addEventListener('input', (e) => {
       listFilter.q = e.target.value;
-      draw();
+      clearTimeout(t);
+      t = setTimeout(refresh, 200);
     });
     $('#f').addEventListener('change', (e) => {
       listFilter.status = e.target.value;
-      draw();
+      refresh();
     });
-    draw();
+    await refresh();
   }
 
   /* ---------------- borang terima / edit ---------------- */
   async function viewForm(editId) {
     const job = editId ? await DB.getJob(editId) : null;
     if (editId && !job) throw new Error('Rekod tidak dijumpai: ' + editId);
-    const j = job || { customer: {}, device: {}, accessories: [], condition: [], photos: [] };
-    let photos = (j.photos || []).slice();
+    const j = job || { customer: {}, device: {}, accessories: [], condition: [] };
+    let photos = job ? (await DB.getPhotos(job)).slice() : [];
+    let photosChanged = false;
 
     const checks = (name, options, selected) =>
       options
@@ -296,7 +437,7 @@
             <label>Anggaran siap<input name="eta" type="date" value="${esc(j.eta)}"></label>
           </div>
           <div class="grid2">
-            <label>Diterima oleh (staff)<input name="staff" value="${esc(j.staff || localStorageGet('lastStaff'))}"></label>
+            <label>Diterima oleh (staff)<input name="staff" value="${esc(j.staff || localStorageGet('lastStaff') || me())}"></label>
           </div>
           <label>Nota dalaman / tambahan<textarea name="notes" rows="2">${esc(j.notes)}</textarea></label>
         </fieldset>
@@ -338,12 +479,14 @@
       const b = e.target.closest('button[data-i]');
       if (!b) return;
       photos.splice(Number(b.dataset.i), 1);
+      photosChanged = true;
       drawPhotos();
     });
     $('#photoInput').addEventListener('change', async (e) => {
       for (const f of Array.from(e.target.files || [])) {
         try {
           photos.push(await resizeImage(f));
+          photosChanged = true;
         } catch (err) {
           toast('Gagal baca gambar');
         }
@@ -375,6 +518,9 @@
         return;
       }
       errBox.hidden = true;
+      const btn = f.querySelector('[type=submit]');
+      btn.disabled = true;
+      btn.textContent = 'Menyimpan…';
 
       const now = new Date().toISOString();
       const data = Object.assign({}, job || {}, {
@@ -390,7 +536,6 @@
         accessoriesOther: fd.get('accOther').trim(),
         condition: fd.getAll('cond'),
         conditionNote: fd.get('condNote').trim(),
-        photos,
         problem: fd.get('problem').trim(),
         estimate: num(fd.get('estimate')),
         deposit: num(fd.get('deposit')),
@@ -399,26 +544,30 @@
         notes: fd.get('notes').trim(),
         updatedAt: now,
       });
+      delete data.photos;
       localStorageSet('lastStaff', data.staff);
 
       if (!job) {
         data.id = await nextId();
         data.createdAt = now;
         data.status = 'diterima';
-        data.history = [{ status: 'diterima', at: now, note: 'Device diterima di kaunter' }];
+        data.history = [{ status: 'diterima', at: now, note: 'Device diterima di kaunter', by: me() || data.staff }];
         data.signIn = pad.toDataURL();
         data.agreed = true;
         data.pickup = null;
       }
+      let result;
       try {
-        await DB.putJob(data);
+        result = await DB.putJob(data, !job || photosChanged ? photos : undefined);
       } catch (err) {
+        btn.disabled = false;
+        btn.textContent = job ? 'Simpan Perubahan' : 'Simpan & Jana Resit';
         errBox.hidden = false;
-        errBox.textContent = 'Gagal simpan: ' + (err.message || err) + '. Cuba kurangkan bilangan gambar.';
+        errBox.textContent = 'Gagal simpan: ' + errMsg(err) + ' Cuba kurangkan bilangan gambar.';
         return;
       }
       location.hash = '#/job/' + encodeURIComponent(data.id) + (job ? '' : '?baru=1');
-      toast(job ? 'Perubahan disimpan' : 'Device diterima – resit dijana');
+      savedToast(result, job ? 'Perubahan disimpan' : 'Device diterima – resit dijana');
     });
   }
 
@@ -476,8 +625,19 @@
             </div>
           </div>
         </div>
-        <div class="main">${renderReceipt(job, settings)}</div>
+        <div class="main" id="receiptBox">${renderReceipt(job, settings)}</div>
       </div>`;
+
+    // Gambar dimuat berasingan (mod cloud) supaya halaman cepat dibuka
+    if (Number(job.photoCount || 0) > 0 && !job.photos) {
+      DB.getPhotos(job)
+        .then((photos) => {
+          if (currentView === 'job' && $('#receiptBox')) {
+            $('#receiptBox').innerHTML = renderReceipt(Object.assign({}, job, { photos }), settings);
+          }
+        })
+        .catch(() => {});
+    }
 
     const sendWa = (text) => {
       window.open(`https://wa.me/${waPhone(job.customer.phone)}?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
@@ -488,7 +648,7 @@
       sendWa(
         `Salam ${job.customer.name},\n\nTerima kasih kerana memilih ${settings.name}. Device anda telah kami terima.\n\n` +
           `No. Resit: *${job.id}*\nDevice: ${dev}\nMasalah: ${job.problem}\n` +
-          (job.estimate !== '' ? `Anggaran: ${money(job.estimate)}\n` : '') +
+          (job.estimate !== '' && job.estimate != null ? `Anggaran: ${money(job.estimate)}\n` : '') +
           (job.deposit ? `Deposit: ${money(job.deposit)}\n` : '') +
           `Status: ${R.statusInfo(job.status).label}\n\n` +
           `Resit digital & status pembaikan:\n${link}\n\nSila simpan mesej ini sebagai bukti penghantaran device.`
@@ -505,7 +665,12 @@
     $('#btnPrint').addEventListener('click', () => window.print());
     $('#btnDel').addEventListener('click', async () => {
       if (!confirm(`Padam rekod ${job.id}? Tindakan ini tidak boleh diundur.`)) return;
-      await DB.deleteJob(job.id);
+      try {
+        await DB.deleteJob(job.id);
+      } catch (err) {
+        alert('Gagal padam: ' + errMsg(err) + (CLOUD ? '\nHanya owner boleh padam rekod.' : ''));
+        return;
+      }
       toast('Rekod dipadam');
       location.hash = '#/';
     });
@@ -524,8 +689,14 @@
         const now = new Date().toISOString();
         job.status = status;
         job.updatedAt = now;
-        job.history = (job.history || []).concat([{ status, at: now, note }]);
-        await DB.putJob(job);
+        job.history = (job.history || []).concat([{ status, at: now, note, by: me() }]);
+        let result;
+        try {
+          result = await DB.putJob(job);
+        } catch (err) {
+          alert('Gagal simpan: ' + errMsg(err));
+          return;
+        }
         if (fd.get('notify')) {
           const msg =
             `Salam ${job.customer.name},\n\nKemaskini untuk device anda (${dev}), No. Resit *${job.id}*:\n\n` +
@@ -535,7 +706,7 @@
             `\nResit & status terkini:\n${customerLink(job, settings)}\n\n- ${settings.name}`;
           sendWa(msg);
         }
-        toast('Status dikemaskini');
+        savedToast(result, 'Status dikemaskini');
         route();
       });
     }
@@ -545,7 +716,7 @@
   async function viewPickup(id) {
     const job = await DB.getJob(id);
     if (!job) throw new Error('Rekod tidak dijumpai: ' + id);
-    const final = job.estimate !== '' ? job.estimate : '';
+    const final = job.estimate !== '' && job.estimate != null ? job.estimate : '';
     const toPay = final !== '' ? Math.max(0, Number(final) - Number(job.deposit || 0)) : '';
 
     app.innerHTML = `
@@ -592,8 +763,8 @@
       const errors = [];
       if (!fd.get('checked')) errors.push('Pengesahan pelanggan');
       if (pad.isEmpty()) errors.push('Tandatangan');
+      const b = $('#formError');
       if (errors.length) {
-        const b = $('#formError');
         b.hidden = false;
         b.innerHTML = '<strong>Sila lengkapkan:</strong> ' + errors.join(', ');
         return;
@@ -608,67 +779,194 @@
         by: fd.get('by').trim(),
         note: fd.get('note').trim(),
         signOut: pad.toDataURL(),
+        staff: me(),
       };
       job.status = 'diambil';
       job.updatedAt = now;
-      job.history = (job.history || []).concat([{ status: 'diambil', at: now, note: job.pickup.note }]);
-      await DB.putJob(job);
-      toast('Serahan direkodkan');
+      job.history = (job.history || []).concat([{ status: 'diambil', at: now, note: job.pickup.note, by: me() }]);
+      let result;
+      try {
+        result = await DB.putJob(job);
+      } catch (err) {
+        b.hidden = false;
+        b.textContent = 'Gagal simpan: ' + errMsg(err);
+        return;
+      }
+      savedToast(result, 'Serahan direkodkan');
       location.hash = '#/job/' + encodeURIComponent(job.id);
     });
   }
 
   /* ---------------- tetapan & backup ---------------- */
   async function viewSettings() {
-    const jobs = await DB.allJobs();
-    let usage = '';
-    if (navigator.storage && navigator.storage.estimate) {
-      const est = await navigator.storage.estimate();
-      usage = `${(est.usage / 1048576).toFixed(1)} MB digunakan daripada ~${(est.quota / 1048576).toFixed(0)} MB`;
+    const editable = canEditSettings();
+    let localCount = 0;
+    if (CLOUD) {
+      try {
+        localCount = (await LocalDB.allJobs()).length;
+      } catch (e) {}
     }
+    let usage = '';
+    if (!CLOUD && navigator.storage && navigator.storage.estimate) {
+      const est = await navigator.storage.estimate();
+      usage = `${(est.usage / 1048576).toFixed(1)} MB digunakan`;
+    }
+    const u = CLOUD ? DB.currentUser() : null;
 
     app.innerHTML = `
+      ${
+        CLOUD
+          ? `<div class="card">
+        <h2>Akaun</h2>
+        <p>Log masuk sebagai <strong>${esc(u && u.email)}</strong> (${DB.isOwner() ? 'Owner' : 'Staff'})</p>
+        <button class="btn" id="btnLogout">Log Keluar</button>
+      </div>`
+          : ''
+      }
+
+      ${
+        CLOUD && DB.isOwner()
+          ? `<div class="card">
+        <h2>Staff</h2>
+        <p class="small muted">Cara tambah staff: (1) staff buka app ini dan tekan <em>"Daftar akaun"</em> guna email mereka, (2) owner tambah email yang sama di bawah. Staff boleh terima device, kemaskini status dan rekod serahan. Hanya owner boleh padam rekod dan ubah tetapan kedai.</p>
+        <ul class="staff-list" id="staffList"></ul>
+        <form id="staffForm" class="inline-form">
+          <input name="email" type="email" placeholder="email staff" required>
+          <button class="btn primary" type="submit">Tambah</button>
+        </form>
+      </div>`
+          : ''
+      }
+
       <form id="setForm" class="card form">
         <h2>Tetapan Kedai</h2>
-        <div class="grid2">
-          <label>Nama kedai<input name="name" value="${esc(settings.name)}"></label>
-          <label>No. telefon kedai<input name="phone" value="${esc(settings.phone)}"></label>
-        </div>
-        <label>Alamat<textarea name="address" rows="2">${esc(settings.address)}</textarea></label>
-        <div class="grid2">
-          <label>Prefix no. resit<input name="prefix" value="${esc(settings.prefix)}" maxlength="6"></label>
-          <label>Waranti lalai (hari)<input name="warrantyDays" type="number" min="0" value="${esc(settings.warrantyDays)}"></label>
-        </div>
-        <label>Terma & syarat (satu baris = satu syarat)<textarea name="terms" rows="8">${esc(settings.terms)}</textarea></label>
-        <div class="actions"><button class="btn primary" type="submit">Simpan Tetapan</button></div>
+        ${editable ? '' : '<p class="small muted">Hanya owner boleh ubah tetapan kedai.</p>'}
+        <fieldset ${editable ? '' : 'disabled'} class="plain">
+          <div class="grid2">
+            <label>Nama kedai<input name="name" value="${esc(settings.name)}"></label>
+            <label>No. telefon kedai<input name="phone" value="${esc(settings.phone)}"></label>
+          </div>
+          <label>Alamat<textarea name="address" rows="2">${esc(settings.address)}</textarea></label>
+          <div class="grid2">
+            <label>Prefix no. resit<input name="prefix" value="${esc(settings.prefix)}" maxlength="6"></label>
+            <label>Waranti lalai (hari)<input name="warrantyDays" type="number" min="0" value="${esc(settings.warrantyDays)}"></label>
+          </div>
+          <label>Terma & syarat (satu baris = satu syarat)<textarea name="terms" rows="8">${esc(settings.terms)}</textarea></label>
+          <div class="actions"><button class="btn primary" type="submit">Simpan Tetapan</button></div>
+        </fieldset>
       </form>
+
+      ${
+        CLOUD && localCount && DB.isOwner()
+          ? `<div class="card">
+        <h2>Pindah Data Lama ke Cloud</h2>
+        <p>Peranti ini ada <strong>${localCount}</strong> rekod yang disimpan sebelum sistem cloud diaktifkan. Pindahkan ke cloud supaya semua staff boleh lihat. Rekod yang sudah ada di cloud akan dilangkau.</p>
+        <button class="btn primary" id="btnMigrate">⬆ Pindah ${localCount} rekod ke cloud</button>
+      </div>`
+          : ''
+      }
 
       <div class="card">
         <h2>Backup Data</h2>
-        <p>Semua rekod disimpan dalam browser peranti ini (${jobs.length} rekod${usage ? ', ' + usage : ''}).
-        <strong>Buat backup secara berkala</strong> dan simpan fail di Google Drive / WhatsApp sendiri, supaya data tidak hilang jika telefon rosak atau browser dikosongkan.</p>
+        <p>${
+          CLOUD
+            ? 'Data disimpan dalam cloud (Firebase) secara automatik dan boleh diakses dari semua peranti staff. Backup di bawah adalah salinan tambahan (pilihan).'
+            : `Semua rekod disimpan dalam browser peranti ini${usage ? ' (' + usage + ')' : ''}. <strong>Buat backup secara berkala</strong> dan simpan fail di Google Drive / WhatsApp sendiri.`
+        }</p>
         <div class="btn-row">
           <button class="btn primary" id="btnExport">⬇ Muat turun backup</button>
-          <label class="btn">⬆ Pulihkan dari backup<input type="file" id="importFile" accept="application/json,.json" hidden></label>
+          ${editable ? '<label class="btn">⬆ Pulihkan dari backup<input type="file" id="importFile" accept="application/json,.json" hidden></label>' : ''}
           <button class="btn" id="btnCsv">📊 Eksport CSV (Excel)</button>
         </div>
       </div>`;
 
+    if (CLOUD) $('#btnLogout').addEventListener('click', () => DB.signOut());
+
+    if ($('#staffForm')) {
+      const drawStaff = () => {
+        const list = DB.getStaff();
+        $('#staffList').innerHTML = list.length
+          ? list.map((e) => `<li><span>${esc(e)}</span><button class="btn small danger" data-email="${esc(e)}">Buang</button></li>`).join('')
+          : '<li class="muted small">Belum ada staff ditambah.</li>';
+      };
+      drawStaff();
+      $('#staffList').addEventListener('click', async (e) => {
+        const b = e.target.closest('button[data-email]');
+        if (!b || !confirm(`Buang akses ${b.dataset.email}?`)) return;
+        try {
+          await DB.saveStaff(DB.getStaff().filter((x) => x !== b.dataset.email));
+          drawStaff();
+          toast('Akses staff dibuang');
+        } catch (err) {
+          alert(errMsg(err));
+        }
+      });
+      $('#staffForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const email = e.target.email.value.trim().toLowerCase();
+        if (!email) return;
+        try {
+          await DB.saveStaff(DB.getStaff().concat([email]));
+          e.target.reset();
+          drawStaff();
+          toast('Staff ditambah');
+        } catch (err) {
+          alert(errMsg(err));
+        }
+      });
+    }
+
     $('#setForm').addEventListener('submit', async (e) => {
       e.preventDefault();
+      if (!editable) return;
       const fd = new FormData(e.target);
-      settings = {
+      const next = {
         name: fd.get('name').trim() || 'OGFIX',
         phone: fd.get('phone').trim(),
         address: fd.get('address').trim(),
-        prefix: (fd.get('prefix').trim() || 'OGF').toUpperCase().replace(/[^A-Z0-9]/g, ''),
+        prefix: (fd.get('prefix').trim() || 'OGF').toUpperCase().replace(/[^A-Z0-9]/g, '') || 'OGF',
         warrantyDays: num(fd.get('warrantyDays')),
         terms: fd.get('terms').trim(),
       };
-      await DB.saveSettings(settings);
+      try {
+        await DB.saveSettings(next);
+      } catch (err) {
+        alert('Gagal simpan: ' + errMsg(err));
+        return;
+      }
+      settings = next;
       applyShopName();
       toast('Tetapan disimpan');
     });
+
+    if ($('#btnMigrate')) {
+      $('#btnMigrate').addEventListener('click', async (e) => {
+        const btn = e.target;
+        btn.disabled = true;
+        const local = await LocalDB.allJobs();
+        let done = 0;
+        let skipped = 0;
+        for (const j of local) {
+          btn.textContent = `Memindah… ${done + skipped}/${local.length}`;
+          try {
+            if (await DB.getJob(j.id)) {
+              skipped++;
+              continue;
+            }
+            const photos = j.photos || [];
+            const copy = Object.assign({}, j);
+            delete copy.photos;
+            await DB.putJob(copy, photos);
+            done++;
+          } catch (err) {
+            alert(`Gagal pindah ${j.id}: ${errMsg(err)}`);
+            break;
+          }
+        }
+        btn.textContent = `Selesai: ${done} dipindah, ${skipped} dilangkau`;
+        toast('Data lama dipindah ke cloud');
+      });
+    }
 
     const download = (name, content, type) => {
       const a = document.createElement('a');
@@ -683,19 +981,31 @@
     };
     const stamp = () => new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
 
-    $('#btnExport').addEventListener('click', async () => {
-      const all = await DB.allJobs();
-      download(
-        `ogfix-backup-${stamp()}.json`,
-        JSON.stringify({ app: 'ogfix-terima-device', version: 1, exportedAt: new Date().toISOString(), settings, jobs: all }),
-        'application/json'
-      );
-      localStorageSet('lastBackup', new Date().toISOString());
-      toast('Backup dimuat turun');
+    $('#btnExport').addEventListener('click', async (e) => {
+      const btn = e.target;
+      btn.disabled = true;
+      btn.textContent = 'Menyediakan…';
+      try {
+        const all = await DB.allJobs({ full: true });
+        const jobs = [];
+        for (const j of all) jobs.push(Object.assign({}, j, { photos: await DB.getPhotos(j) }));
+        download(
+          `ogfix-backup-${stamp()}.json`,
+          JSON.stringify({ app: 'ogfix-terima-device', version: 1, exportedAt: new Date().toISOString(), settings, jobs }),
+          'application/json'
+        );
+        localStorageSet('lastBackup', new Date().toISOString());
+        toast('Backup dimuat turun');
+      } catch (err) {
+        alert('Gagal backup: ' + errMsg(err));
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '⬇ Muat turun backup';
+      }
     });
 
     $('#btnCsv').addEventListener('click', async () => {
-      const all = await DB.allJobs();
+      const all = await DB.allJobs({ full: true });
       const cols = [
         ['No Resit', (j) => j.id],
         ['Tarikh Terima', (j) => j.createdAt],
@@ -721,32 +1031,40 @@
       download(`ogfix-rekod-${stamp()}.csv`, csv, 'text/csv');
     });
 
-    $('#importFile').addEventListener('change', async (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-      try {
-        const data = JSON.parse(await file.text());
-        if (!data || !Array.isArray(data.jobs)) throw new Error('Fail bukan backup yang sah');
-        if (
-          !confirm(
-            `Pulihkan ${data.jobs.length} rekod dari backup?\nRekod dengan no. resit yang sama akan ditulis semula. Rekod lain dikekalkan.`
+    if ($('#importFile')) {
+      $('#importFile').addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        try {
+          const data = JSON.parse(await file.text());
+          if (!data || !Array.isArray(data.jobs)) throw new Error('Fail bukan backup yang sah');
+          if (
+            !confirm(
+              `Pulihkan ${data.jobs.length} rekod dari backup?\nRekod dengan no. resit yang sama akan ditulis semula. Rekod lain dikekalkan.`
+            )
           )
-        )
-          return;
-        for (const j of data.jobs) if (j && j.id) await DB.putJob(j);
-        if (data.settings && confirm('Pulihkan juga tetapan kedai dari backup?')) {
-          settings = Object.assign({}, settings, data.settings);
-          await DB.saveSettings(settings);
-          applyShopName();
+            return;
+          for (const j of data.jobs) {
+            if (!j || !j.id) continue;
+            const photos = j.photos || [];
+            const copy = Object.assign({}, j);
+            delete copy.photos;
+            await DB.putJob(copy, photos);
+          }
+          if (data.settings && confirm('Pulihkan juga tetapan kedai dari backup?')) {
+            settings = Object.assign({}, settings, data.settings);
+            await DB.saveSettings(settings);
+            applyShopName();
+          }
+          toast('Backup dipulihkan');
+          route();
+        } catch (err) {
+          alert('Gagal pulihkan: ' + errMsg(err));
+        } finally {
+          e.target.value = '';
         }
-        toast('Backup dipulihkan');
-        route();
-      } catch (err) {
-        alert('Gagal pulihkan: ' + (err.message || err));
-      } finally {
-        e.target.value = '';
-      }
-    });
+      });
+    }
   }
 
   function localStorageGet(k) {
@@ -767,17 +1085,38 @@
     document.title = settings.name + ' – Terima Device';
   }
 
-  /* ---------------- start ---------------- */
-  async function init() {
-    settings = await DB.getSettings();
-    if (!settings) {
-      settings = { name: 'OGFIX', phone: '', address: '', prefix: 'OGF', warrantyDays: 30, terms: DEFAULT_TERMS };
-      await DB.saveSettings(settings);
+  async function loadSettings() {
+    const s = await DB.getSettings();
+    settings = Object.assign({}, DEFAULT_SETTINGS, s || {});
+    if (!s && canEditSettings()) {
+      try {
+        await DB.saveSettings(settings);
+      } catch (e) {}
     }
     applyShopName();
-    if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+  }
+
+  /* ---------------- start ---------------- */
+  async function init() {
     window.addEventListener('hashchange', route);
-    route();
+    try {
+      await DB.init(window.FIREBASE_CONFIG);
+    } catch (err) {
+      app.innerHTML = `<div class="card login"><h2>Tidak dapat dimuatkan</h2><p>${esc(errMsg(err))}</p>
+        <button class="btn primary" onclick="location.reload()">Cuba Lagi</button></div>`;
+      return;
+    }
+    if (!CLOUD) {
+      await loadSettings();
+      if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+      ready = true;
+      setLoggedIn(true);
+      return route();
+    }
+    DB.onChange(() => {
+      if (ready && currentView === 'list' && listRefresh) listRefresh();
+    });
+    DB.onAuth((u) => enterSession(u));
   }
 
   if ('serviceWorker' in navigator && location.protocol !== 'file:') {

@@ -186,3 +186,15 @@ body.public main { padding-top: 20px; }
   .receipt { box-shadow: none; padding: 0; max-width: none; }
   .receipt section { break-inside: avoid; }
 }
+
+/* ---------- login & staff (mod cloud) ---------- */
+body.logged-out .nav { display: none; }
+.login { max-width: 420px; margin: 24px auto; }
+.login-links { display: flex; justify-content: space-between; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+.linkbtn { background: none; border: 0; padding: 4px 0; color: var(--accent); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
+.form-error.ok { background: #f0fdf4; color: #14532d; border-color: #bbf7d0; }
+fieldset.plain { border: 0; padding: 0; margin: 0; min-width: 0; }
+.staff-list { list-style: none; padding: 0; margin: 0 0 12px; }
+.staff-list li { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--line); word-break: break-all; }
+.inline-form { display: flex; gap: 8px; }
+.inline-form input { margin: 0; flex: 1; }
