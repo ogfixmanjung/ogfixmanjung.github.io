@@ -136,6 +136,7 @@
         ${row('Cara bayaran', esc(pk.method))}
         ${pk.warrantyDays ? row('Waranti', `${esc(pk.warrantyDays)} hari (sehingga ${warrantyUntil})`) : ''}
         ${pk.note ? row('Nota', esc(pk.note)) : ''}
+        ${!isPublic && pk.verified ? row('Pengesahan', esc(pk.verified)) : ''}
         ${
           pk.signOut && !isPublic
             ? `<div class="sig"><img src="${pk.signOut}" alt="Tandatangan ambil"><div class="small muted">Tandatangan semasa ambil</div></div>`
@@ -155,6 +156,11 @@
         <div class="r-no">${esc(job.id)}</div>
         <div class="small muted">Diterima: ${fmtDate(job.createdAt)}</div>
         <div class="r-status">${badge(job.status)}</div>
+        ${
+          isPublic && job.pickupCode && job.status !== 'diambil'
+            ? `<div class="r-code"><div class="r-code-label">KOD AMBIL</div><div class="r-code-num">${esc(job.pickupCode)}</div><div class="small">Sebut / tunjuk kod ini semasa mengambil device</div></div>`
+            : ''
+        }
       </header>
 
       <section><h3>Pelanggan</h3>
@@ -256,6 +262,7 @@
         estimate: job.estimate,
         deposit: job.deposit,
         eta: job.eta,
+        pickupCode: job.status !== 'diambil' ? job.pickupCode || '' : '',
         staff: job.staff,
         history: (job.history || []).map((h) => ({ status: h.status, at: h.at, note: h.note || '' })),
         signed: !!job.signIn,

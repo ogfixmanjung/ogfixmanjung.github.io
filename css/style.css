@@ -287,3 +287,18 @@ body:not(.is-owner) .owner-only { display: none; }
 .loc-big { font-size: 18px; background: #eff6ff; border: 2px solid #93c5fd; color: #1e3a8a; border-radius: 10px; padding: 12px 14px; margin-bottom: 12px; }
 #stForm label.small { font-weight: 600; margin: 0; }
 #stForm label.small input { margin-top: 2px; }
+
+/* ---------- kod ambil ---------- */
+.r-code { margin: 14px auto 0; max-width: 260px; border: 2px dashed var(--text); border-radius: 12px; padding: 10px 12px; }
+.r-code-label { font-size: 12px; font-weight: 700; letter-spacing: .14em; color: var(--muted); }
+.r-code-num { font-size: 40px; font-weight: 800; letter-spacing: .3em; padding-left: .3em; font-variant-numeric: tabular-nums; font-family: ui-monospace, Menlo, Consolas, monospace; line-height: 1.2; }
+.code-check { background: #f8fafc; border: 1px solid var(--line); border-radius: 12px; padding: 12px; margin: 4px 0 12px; }
+.code-check > label:first-child { margin-bottom: 6px; }
+.code-input { font-size: 32px; font-weight: 800; letter-spacing: .4em; text-align: center; max-width: 220px; font-family: ui-monospace, Menlo, Consolas, monospace; display: block; }
+.code-status { font-weight: 700; min-height: 22px; margin-bottom: 8px; }
+.code-status.good { color: #15803d; }
+.code-status.bad { color: var(--danger); }
+.code-check label.check { margin-bottom: 8px; }
+
+/* atribut hidden sentiasa menang (cth: label dalam .form) */
+[hidden] { display: none !important; }

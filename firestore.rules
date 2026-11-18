@@ -40,7 +40,7 @@ service cloud.firestore {
       let oldLog = resource.data.get('log', []);
       let newLog = request.resource.data.get('log', []);
       return newLog.size() == oldLog.size() + 1 &&
-        newLog[0:oldLog.size()] == oldLog &&
+        (oldLog.size() == 0 || newLog[0:oldLog.size()] == oldLog) &&
         newLog[oldLog.size()].by == myEmail();
     }
 
