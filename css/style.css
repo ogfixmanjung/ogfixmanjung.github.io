@@ -327,3 +327,112 @@ body:not(.is-owner) .owner-only { display: none; }
 .pattern-info { display: flex; justify-content: space-between; align-items: center; gap: 8px; max-width: 280px; margin: 0 auto; }
 .pc-pattern { display: inline-flex; align-items: center; gap: 10px; text-align: left; }
 .pattern-mini { flex: none; background: #f8fafc; border: 1px solid var(--line); border-radius: 10px; }
+
+/* =====================================================================
+   TEMA BERSIH (v14) – hijau gelap, latar kelabu lembut, kad bergaris
+   ===================================================================== */
+:root {
+  --bg: #f2f1ec;
+  --card: #ffffff;
+  --text: #18201b;
+  --muted: #6a716b;
+  --line: #e3e1d9;
+  --primary: #1e4a33;
+  --primary-text: #ffffff;
+  --accent: #1f6b45;
+  --brand-band: #1d3a2a;
+  --radius: 14px;
+  --shadow: none;
+}
+body { background: var(--bg); color: var(--text); font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+
+/* jalur atas */
+.band { display: flex; justify-content: space-between; gap: 12px; background: var(--brand-band); color: #e7eee9; font-size: 11px; font-weight: 600; letter-spacing: .2em; text-transform: uppercase; padding: 9px 24px; }
+.band span:last-child { text-align: right; }
+
+/* header putih */
+.topbar { position: sticky; top: 0; z-index: 10; background: #fff; color: var(--text); border-bottom: 1px solid var(--line); padding: 14px 24px; gap: 16px 24px; }
+.brand { gap: 16px; font-size: inherit; font-weight: inherit; }
+.brand .wordmark { height: 30px; color: var(--text); }
+.brand-text { display: flex; flex-direction: column; padding-left: 16px; border-left: 1px solid var(--line); line-height: 1.25; }
+.brand-text strong { font-size: 15px; font-weight: 700; }
+.brand-text small { font-size: 13px; color: var(--muted); opacity: 1; padding: 0; border: 0; }
+.brand small { border-left: 0; }
+.nav { margin-left: auto; gap: 4px; }
+.nav a { color: var(--text); opacity: 1; font-weight: 600; padding: 8px 14px; border-radius: 10px; }
+.nav a:hover { background: #f4f4f0; }
+.nav a.active { background: #eef3ef; color: var(--primary); }
+.nav a.nav-new { background: var(--primary); color: #fff; }
+.who { display: flex; flex-direction: column; align-items: flex-end; font-size: 13px; color: var(--muted); line-height: 1.3; }
+.who .linkbtn { font-size: 13px; color: var(--text); text-decoration: underline; padding: 0; font-weight: 500; }
+body.logged-out .who { display: none; }
+@media (max-width: 760px) {
+  .band { padding: 7px 16px; font-size: 10px; letter-spacing: .14em; }
+  .topbar { padding: 10px 16px; }
+  .brand .wordmark { height: 24px; }
+  .brand-text { display: none; }
+  .who { display: none; }
+  .nav { order: 3; width: 100%; margin: 0; overflow-x: auto; }
+  .nav a { padding: 7px 11px; font-size: 14px; white-space: nowrap; }
+}
+
+main { max-width: 1140px; padding: 24px; }
+@media (max-width: 760px) { main { padding: 16px; } }
+
+/* kad & butang */
+.card, .stat, .job, .receipt, .modal-box { border: 1px solid var(--line); box-shadow: none; }
+.btn { border-color: var(--line); border-radius: 10px; }
+.btn.primary { background: var(--primary); border-color: var(--primary); }
+.btn.primary:hover { background: #173a28; }
+input, select, textarea { border-color: #d9d7cf; }
+input:focus, select:focus, textarea:focus { outline-color: var(--accent); }
+label.check:has(input:checked) { border-color: var(--accent); background: #eef5f0; }
+label.check input { accent-color: var(--accent); }
+legend { color: var(--primary); }
+.linkbtn { color: var(--primary); }
+
+/* hero (halaman senarai) */
+.hero { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px 32px; flex-wrap: wrap; margin: 8px 0 22px; }
+.hero > div:first-child { max-width: 640px; }
+.eyebrow { font-size: 12px; font-weight: 700; letter-spacing: .18em; text-transform: uppercase; color: var(--text); margin-bottom: 6px; }
+.hero h1 { font-size: clamp(26px, 4vw, 38px); line-height: 1.1; letter-spacing: -.02em; margin: 0 0 10px; font-weight: 800; }
+.hero p { margin: 0; font-size: 15px; }
+.hero-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.hero-actions .btn { padding: 12px 20px; }
+
+/* jubin status */
+.tiles { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 18px; }
+@media (min-width: 760px) { .tiles { grid-template-columns: repeat(3, 1fr); } }
+@media (min-width: 1000px) { .tiles { grid-template-columns: repeat(5, 1fr); } }
+.tile { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; text-align: left; background: #fff; border: 1px solid var(--line); border-left: 4px solid var(--muted); border-radius: 12px; padding: 14px 16px; font: inherit; color: var(--text); cursor: pointer; }
+.tile:hover { border-color: #cfccc2; }
+.tile.active { border-color: var(--text); box-shadow: inset 0 0 0 1px var(--text); }
+.tile-label { font-size: 13px; color: var(--muted); font-weight: 500; }
+.tile-n { font-size: 30px; font-weight: 800; line-height: 1; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+
+/* senarai kerja */
+.list-card { padding: 20px; }
+.list-head h2 { margin: 0; font-size: 20px; }
+.list-head { margin-bottom: 12px; }
+.list-card .toolbar { margin-bottom: 14px; }
+.list-card .toolbar #fp { flex: 1 1 140px; margin: 0; }
+.job { border-left: 4px solid transparent; }
+.job:hover { border-left-color: var(--accent); }
+.pic { color: var(--text); font-weight: 600; }
+.grid2.tight { gap: 0 8px; }
+#stForm .grid2.tight select { margin-top: 2px; }
+
+/* resit & lain-lain */
+.r-no { color: var(--primary); }
+.remind-card { border-left: 4px solid #d97706; }
+.cc-bar, .hb-bar { background: var(--accent); }
+.notice { background: #eef5f0; border-color: #cfe3d6; color: #173a28; }
+#toast { background: var(--text); }
+@media (max-width: 759px) {
+  .tiles { grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .tile { padding: 10px; border-left-width: 3px; gap: 4px; }
+  .tile-label { font-size: 11px; line-height: 1.25; }
+  .tile-n { font-size: 22px; }
+  .hero { margin-bottom: 16px; }
+  .hero-actions { width: 100%; }
+}

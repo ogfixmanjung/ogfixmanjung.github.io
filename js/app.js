@@ -26,6 +26,8 @@
     prefix: 'OGF',
     warrantyDays: 30,
     remindDays: 3,
+    pics: ['Acap', 'Azim', 'Hakim', 'Haziq', 'Iqbal'],
+    slogan: 'Your device lifesaver',
     abandonDays: 30,
     terms: DEFAULT_TERMS,
   };
@@ -106,6 +108,7 @@
     ['Anggaran siap', (j) => j.eta],
     ['Staff terima', (j) => j.staff],
     ['Lokasi simpanan', (j) => j.location],
+    ['PIC repair', (j) => j.pic],
     ['Nota', (j) => j.notes],
   ];
 
@@ -160,6 +163,17 @@
       : '<li class="muted small">Tiada log. Rekod ini dicipta sebelum log perubahan diaktifkan.</li>';
     return `<details class="card log-card"><summary><h3>Log Perubahan (${log.length})</h3></summary><ul class="log">${body}</ul>
       <p class="small muted">Log tidak boleh dipadam atau diubah oleh staff.</p></details>`;
+  }
+
+  /* ---------- PIC repair (technician) ---------- */
+  function picList() {
+    return (settings.pics || []).map((x) => String(x).trim()).filter(Boolean);
+  }
+
+  function picOptions(selected) {
+    const list = picList();
+    if (selected && !list.includes(selected)) list.push(selected); // nama lama yang telah dibuang dari tetapan
+    return `<option value="">— Belum ditetapkan —</option>` + list.map((n) => `<option ${n === selected ? 'selected' : ''}>${esc(n)}</option>`).join('');
   }
 
   /* ---------- kod ambil (4 digit) ---------- */
@@ -579,6 +593,11 @@
       const role = await DB.startSession();
       if (role === 'pending') return DB.isVerified() ? viewPending() : viewVerify();
       document.body.classList.toggle('is-owner', role === 'owner');
+      const who = $('#who');
+      if (who) {
+        who.innerHTML = `<span>${esc(DB.userName())} · ${esc(u.email || '')}</span><button type="button" class="linkbtn" id="whoOut">Log keluar</button>`;
+        $('#whoOut').addEventListener('click', () => DB.signOut());
+      }
       await loadSettings();
       setLoggedIn(true);
       ready = true;
@@ -593,17 +612,32 @@
   }
 
   /* ---------------- senarai ---------------- */
-  let listFilter = { q: '', status: 'aktif' };
+  let listFilter = { q: '', status: 'aktif', pic: '' };
 
   async function viewList() {
     app.innerHTML = `
-      <div class="stats" id="stats"></div>
+      <section class="hero">
+        <div>
+          <div class="eyebrow">Satu device, satu no. resit.</div>
+          <h1>Penerimaan &amp; proses repair</h1>
+          <p class="muted">Cari pelanggan melalui no. telefon, no. resit atau kod ambil, dan rekod setiap kerja technician dengan jelas.</p>
+        </div>
+        <div class="hero-actions">
+          <a class="btn primary" href="#/baru">＋ Terima device</a>
+          <a class="btn owner-only" href="#/laporan">Laporan</a>
+        </div>
+      </section>
+      <div class="tiles" id="stats"></div>
       <div id="remind"></div>
-      <div class="toolbar">
-        <input type="search" id="q" placeholder="Cari no. resit, nama, telefon, IMEI, model…" value="${esc(listFilter.q)}">
-        <select id="f"></select>
-      </div>
-      <div id="list"><div class="empty">Memuatkan…</div></div>`;
+      <section class="card list-card">
+        <div class="list-head"><div><h2>Senarai kerja</h2><div class="small muted" id="listCount"></div></div></div>
+        <div class="toolbar">
+          <input type="search" id="q" placeholder="Cari telefon, nama, no. resit, kod, model atau IMEI…" value="${esc(listFilter.q)}">
+          <select id="f" aria-label="Status"></select>
+          <select id="fp" aria-label="PIC repair"></select>
+        </div>
+        <div id="list"><div class="empty">Memuatkan…</div></div>
+      </section>`;
 
     const needFull = () =>
       CLOUD && !DB.isFullLoaded() && (listFilter.q.trim() !== '' || listFilter.status !== 'aktif');
@@ -624,13 +658,24 @@
       const active = jobs.filter(isActive).length;
       const today = new Date().toDateString();
 
-      $('#stats').innerHTML = `
-        <div class="stat"><span>${active}</span>Device dalam kedai</div>
-        <div class="stat"><span>${counts.siap || 0}</span>Siap, belum ambil</div>
-        <div class="stat"><span>${counts.menunggu_part || 0}</span>Menunggu part</div>
-        <div class="stat"><span>${jobs.filter((j) => new Date(j.createdAt).toDateString() === today).length}</span>Diterima hari ini</div>`;
-
       const partial = CLOUD && !DB.isFullLoaded();
+      const tiles = [{ key: 'aktif', label: 'Dalam kedai', color: '#18201b', n: active }]
+        .concat(STATUS.map((s) => ({ key: s.key, label: s.label, color: s.color, n: partial && !isActive({ status: s.key }) ? null : counts[s.key] || 0 })))
+        .concat([{ key: 'semua', label: 'Semua rekod', color: '#94a3b8', n: partial ? null : jobs.length }]);
+      $('#stats').innerHTML = tiles
+        .map(
+          (t) => `<button type="button" class="tile ${listFilter.status === t.key ? 'active' : ''}" data-status="${t.key}" style="border-left-color:${t.color}">
+            <span class="tile-label">${esc(t.label)}</span><span class="tile-n">${t.n == null ? '…' : t.n}</span></button>`
+        )
+        .join('');
+      const todayN = jobs.filter((j) => new Date(j.createdAt).toDateString() === today).length;
+
+      const pics = picList();
+      jobs.forEach((j) => j.pic && !pics.includes(j.pic) && pics.push(j.pic));
+      $('#fp').innerHTML = [['', 'Semua PIC'], ['__none', 'Tiada PIC']]
+        .concat(pics.map((n) => [n, n]))
+        .map(([v, l]) => `<option value="${esc(v)}" ${listFilter.pic === v ? 'selected' : ''}>${esc(l)}</option>`)
+        .join('');
       const filters = [
         { key: 'aktif', label: `Aktif (${active})` },
         { key: 'semua', label: partial ? 'Semua rekod' : `Semua (${jobs.length})` },
@@ -644,8 +689,10 @@
       const out = jobs.filter((j) => {
         if (listFilter.status === 'aktif' && !isActive(j)) return false;
         if (!['aktif', 'semua'].includes(listFilter.status) && j.status !== listFilter.status) return false;
+        if (listFilter.pic === '__none' && j.pic) return false;
+        if (listFilter.pic && listFilter.pic !== '__none' && j.pic !== listFilter.pic) return false;
         if (!q) return true;
-        const hay = [j.id, j.customer.name, j.customer.phone, j.device.brand, j.device.model, j.device.imei, j.problem, j.location, j.status !== 'diambil' ? j.pickupCode : '']
+        const hay = [j.id, j.customer.name, j.customer.phone, j.device.brand, j.device.model, j.device.imei, j.problem, j.location, j.pic, j.status !== 'diambil' ? j.pickupCode : '']
           .join(' ')
           .toLowerCase();
         return hay.includes(q) || (qDigits.length >= 3 && hay.replace(/\D/g, '').includes(qDigits));
@@ -674,13 +721,14 @@
           </details>`
         : '';
 
+      $('#listCount').textContent = `${out.length} rekod ditemui · ${todayN} diterima hari ini`;
       $('#list').innerHTML = out.length
         ? out
             .map(
               (j) => `<a class="job" href="#/job/${encodeURIComponent(j.id)}">
               <div class="job-top"><strong>${esc(j.id)}</strong>${badge(j.status)}</div>
               <div class="job-dev">${esc([j.device.brand, j.device.model].filter(Boolean).join(' '))}${j.pickupCode && j.status !== 'diambil' ? ` <span class="kod">🔑 ${esc(j.pickupCode)}</span>` : ''}${j.location && j.status !== 'diambil' ? ` <span class="loc">📍 ${esc(j.location)}</span>` : ''}</div>
-              <div class="muted small">${esc(j.customer.name)} · ${esc(j.customer.phone)}</div>
+              <div class="muted small">${esc(j.customer.name)} · ${esc(j.customer.phone)}${j.pic ? ` · <span class="pic">👤 ${esc(j.pic)}</span>` : ''}</div>
               <div class="small job-prob">${esc(j.problem)}</div>
               <div class="muted small">Diterima ${fmtDate(j.createdAt)}${j.eta ? ' · Anggaran siap ' + fmtDate(j.eta, false) : ''}</div>
             </a>`
@@ -701,6 +749,16 @@
     });
     $('#f').addEventListener('change', (e) => {
       listFilter.status = e.target.value;
+      refresh();
+    });
+    $('#fp').addEventListener('change', (e) => {
+      listFilter.pic = e.target.value;
+      refresh();
+    });
+    $('#stats').addEventListener('click', (e) => {
+      const t = e.target.closest('.tile');
+      if (!t) return;
+      listFilter.status = t.dataset.status;
       refresh();
     });
     $('#remind').addEventListener('toggle', (e) => (listFilter.remindOpen = e.target.open), true);
@@ -800,6 +858,7 @@
           </div>
           <div class="grid2">
             <label>Diterima oleh (staff)<input name="staff" value="${esc(j.staff || localStorageGet('lastStaff') || me())}"></label>
+            <label>PIC repair (technician)<select name="pic">${picOptions(j.pic || '')}</select></label>
           </div>
           <label>Nota dalaman / tambahan<textarea name="notes" rows="2">${esc(j.notes)}</textarea></label>
         </fieldset>
@@ -924,6 +983,7 @@
         deposit: num(fd.get('deposit')),
         eta: fd.get('eta'),
         staff: fd.get('staff').trim(),
+        pic: fd.get('pic') || '',
         location: fd.get('location').trim(),
         notes: fd.get('notes').trim(),
         updatedAt: now,
@@ -1025,7 +1085,10 @@
                 .map((s) => `<option value="${s.key}" ${s.key === job.status ? 'selected' : ''}>${esc(s.label)}</option>`)
                 .join('')}</select>
               <textarea name="note" rows="2" placeholder="Nota (cth: Part skrin dah order, ETA 3 hari)"></textarea>
-              <label class="small">📍 Lokasi simpanan<input name="location" value="${esc(job.location || '')}" placeholder="cth: Rak A2"></label>
+              <div class="grid2 tight">
+                <label class="small">📍 Lokasi simpanan<input name="location" value="${esc(job.location || '')}" placeholder="cth: Rak A2"></label>
+                <label class="small">👤 PIC repair<select name="pic">${picOptions(job.pic || '')}</select></label>
+              </div>
               <label class="check"><input type="checkbox" name="notify" checked><span>Maklumkan pelanggan via WhatsApp</span></label>
               <button class="btn primary" type="submit">Kemaskini</button>
             </form>
@@ -1135,7 +1198,9 @@
         const note = fd.get('note').trim();
         const location = (fd.get('location') || '').trim();
         const locChanged = location !== (job.location || '');
-        if (status === job.status && !note && !locChanged) {
+        const pic = fd.get('pic') || '';
+        const picChanged = pic !== (job.pic || '');
+        if (status === job.status && !note && !locChanged && !picChanged) {
           toast('Tiada perubahan');
           return;
         }
@@ -1146,6 +1211,10 @@
         if (locChanged) {
           changes.push({ f: 'Lokasi simpanan', from: job.location || '', to: location || '(kosong)' });
           job.location = location;
+        }
+        if (picChanged) {
+          changes.push({ f: 'PIC repair', from: job.pic || '', to: pic || '(tiada)' });
+          job.pic = pic;
         }
         const statusOrNote = status !== job.status || !!note;
         addLog(job, statusOrNote ? 'status' : 'edit', changes);
@@ -1359,7 +1428,7 @@
     const n = (v) => (v === '' || v == null || isNaN(Number(v)) ? 0 : Number(v));
     const r = {
       received: 0, collected: 0, cancelled: 0, sales: 0, cash: 0, deposits: 0, paidAtPickup: 0,
-      repairDays: [], methods: {}, brands: {}, staff: {}, daily: {}, rows: [],
+      repairDays: [], methods: {}, brands: {}, staff: {}, pics: {}, daily: {}, rows: [],
     };
     const monthly = (end - start) / DAY > 62;
     const bucketKey = (iso) => {
@@ -1372,6 +1441,7 @@
       r.daily[k] = (r.daily[k] || 0) + amt;
     };
     const staffRow = (name) => (r.staff[name] = r.staff[name] || { received: 0, pickups: 0 });
+    const picRow = (name) => (r.pics[name] = r.pics[name] || { received: 0, done: 0, sales: 0 });
 
     jobs.forEach((j) => {
       let touched = false;
@@ -1385,6 +1455,7 @@
         const b = (j.device.brand || 'Lain-lain').trim();
         r.brands[b] = (r.brands[b] || 0) + 1;
         staffRow(j.staff || '(tiada nama)').received++;
+        picRow(j.pic || '(tiada PIC)').received++;
       }
       if (j.pickup && inR(j.pickup.at)) {
         touched = true;
@@ -1396,6 +1467,9 @@
         if (paid) r.methods[j.pickup.method || 'Lain-lain'] = (r.methods[j.pickup.method || 'Lain-lain'] || 0) + paid;
         r.repairDays.push((new Date(j.pickup.at) - new Date(j.createdAt)) / DAY);
         staffRow(j.pickup.staff || j.staff || '(tiada nama)').pickups++;
+        const pr = picRow(j.pic || '(tiada PIC)');
+        pr.done++;
+        pr.sales += n(j.pickup.finalPrice);
       }
       if ((j.history || []).some((h) => h.status === 'batal' && inR(h.at))) {
         touched = true;
@@ -1512,7 +1586,19 @@
         </div>
 
         <div class="card">
-          <h3>Prestasi staff</h3>
+          <h3>Prestasi PIC repair</h3>
+          ${
+            Object.keys(r.pics).length
+              ? `<table class="tbl"><thead><tr><th>PIC</th><th class="num">Job diterima</th><th class="num">Siap &amp; diambil</th><th class="num">Jualan</th></tr></thead><tbody>${Object.entries(r.pics)
+                  .sort((a, b) => b[1].sales - a[1].sales || b[1].done - a[1].done)
+                  .map(([k, v]) => `<tr><td>${esc(k)}</td><td class="num">${v.received}</td><td class="num">${v.done}</td><td class="num">${money(v.sales)}</td></tr>`)
+                  .join('')}</tbody></table>`
+              : '<p class="muted small">Tiada data dalam tempoh ini.</p>'
+          }
+        </div>
+
+        <div class="card">
+          <h3>Prestasi staff kaunter</h3>
           ${
             staffRows.length
               ? `<table class="tbl"><thead><tr><th>Staff</th><th class="num">Device diterima</th><th class="num">Serahan direkod</th></tr></thead><tbody>${staffRows
@@ -1648,6 +1734,10 @@
             <label>Peringatan "belum diambil" selepas (hari)<input name="remindDays" type="number" min="1" value="${esc(settings.remindDays)}"></label>
             <label>Device dianggap terbiar selepas (hari)<input name="abandonDays" type="number" min="1" value="${esc(settings.abandonDays)}"></label>
           </div>
+          <div class="grid2">
+            <label>PIC repair / technician (satu nama satu baris)<textarea name="pics" rows="5">${esc((settings.pics || []).join('\n'))}</textarea></label>
+            <label>Slogan (jalur atas)<input name="slogan" value="${esc(settings.slogan)}"></label>
+          </div>
           <label>Terma & syarat (satu baris = satu syarat)<textarea name="terms" rows="8">${esc(settings.terms)}</textarea></label>
           <div class="actions"><button class="btn primary" type="submit">Simpan Tetapan</button></div>
         </fieldset>
@@ -1727,6 +1817,8 @@
         remindDays: num(fd.get('remindDays')) || 3,
         abandonDays: num(fd.get('abandonDays')) || 30,
         terms: fd.get('terms').trim(),
+        pics: fd.get('pics').split('\n').map((x) => x.trim()).filter(Boolean),
+        slogan: fd.get('slogan').trim(),
       };
       try {
         await DB.saveSettings(next);
@@ -1884,6 +1976,10 @@
 
   function applyShopName() {
     $$('.shop-name').forEach((el) => (el.textContent = settings.name));
+    const bs = $('#bandShop');
+    if (bs) bs.textContent = `${settings.name} / Repair desk`;
+    const sl = $('#bandSlogan');
+    if (sl) sl.textContent = settings.slogan || '';
     document.title = settings.name + ' – Terima Device';
   }
 
@@ -1901,7 +1997,7 @@
   /* ---------------- start ---------------- */
   /* ---------- semakan versi: pastikan semua telefon guna versi terbaru ----------
      Bila kemaskini app: naikkan APP_VERSION, version.json dan ?v= dalam index.html/resit.html */
-  const APP_VERSION = '13';
+  const APP_VERSION = '14';
 
   async function latestVersion() {
     try {
