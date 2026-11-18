@@ -129,6 +129,7 @@
       for (const f of SDK_FILES) await loadScript(`https://www.gstatic.com/firebasejs/${SDK}/${f}`);
       firebase.initializeApp(config);
       auth = firebase.auth();
+      auth.languageCode = 'ms';
       fs = firebase.firestore();
       if (String(config.projectId || '').startsWith('demo-')) {
         // Untuk ujian dengan Firebase Emulator sahaja
@@ -156,7 +157,25 @@
       return user.displayName || (user.email || '').split('@')[0];
     },
     signIn: (email, pw) => auth.signInWithEmailAndPassword(email.trim(), pw),
-    register: (email, pw) => auth.createUserWithEmailAndPassword(email.trim(), pw),
+    async register(email, pw) {
+      const cred = await auth.createUserWithEmailAndPassword(email.trim(), pw);
+      try {
+        await cred.user.sendEmailVerification();
+      } catch (e) {
+        console.warn('verify email', e);
+      }
+      return cred;
+    },
+    sendVerification: () => auth.currentUser.sendEmailVerification(),
+    /* Muat semula status akaun selepas pengguna klik link pengesahan email */
+    async refreshUser() {
+      await auth.currentUser.reload();
+      user = auth.currentUser;
+      await user.getIdToken(true);
+      return user.emailVerified;
+    },
+    isVerified: () => !!(user && user.emailVerified),
+    userEmail: () => ((user && user.email) || '').toLowerCase(),
     resetPassword: (email) => auth.sendPasswordResetEmail(email.trim()),
     signOut: () => auth.signOut(),
 
@@ -218,7 +237,7 @@
     async putJob(job, photos) {
       const data = Object.assign({}, job);
       delete data.photos;
-      data.active = !['diambil', 'batal'].includes(data.status);
+      data.active = data.status !== 'diambil';
       const batch = fs.batch();
       if (photos !== undefined) {
         const old = Number(job.photoCount || 0);

@@ -68,6 +68,88 @@
     return CLOUD ? DB.userName() : '';
   }
 
+  /* ---------- log perubahan ---------- */
+  function actor() {
+    return CLOUD ? DB.userEmail() : localStorageGet('lastStaff') || '';
+  }
+
+  function addLog(job, action, changes) {
+    job.log = (job.log || []).concat([
+      { at: new Date().toISOString(), by: actor(), action, changes: changes || [] },
+    ]);
+  }
+
+  const LOG_FIELDS = [
+    ['Nama pelanggan', (j) => j.customer && j.customer.name],
+    ['No. telefon', (j) => j.customer && j.customer.phone],
+    ['Jenama', (j) => j.device && j.device.brand],
+    ['Model', (j) => j.device && j.device.model],
+    ['Warna', (j) => j.device && j.device.color],
+    ['IMEI', (j) => j.device && j.device.imei],
+    ['Passcode', (j) => j.device && j.device.passcode, 'secret'],
+    ['Aksesori', (j) => (j.accessories || []).join(', ')],
+    ['Aksesori lain', (j) => j.accessoriesOther],
+    ['Keadaan', (j) => (j.condition || []).join(', ')],
+    ['Catatan keadaan', (j) => j.conditionNote],
+    ['Masalah', (j) => j.problem],
+    ['Anggaran harga', (j) => j.estimate, 'money'],
+    ['Deposit', (j) => j.deposit, 'money'],
+    ['Anggaran siap', (j) => j.eta],
+    ['Staff terima', (j) => j.staff],
+    ['Nota', (j) => j.notes],
+  ];
+
+  function fmtVal(v, type) {
+    if (v === '' || v == null) return '(kosong)';
+    if (type === 'money') return money(v);
+    return String(v);
+  }
+
+  function diffJob(oldJob, newJob) {
+    const out = [];
+    LOG_FIELDS.forEach(([label, get, type]) => {
+      const a = get(oldJob);
+      const b = get(newJob);
+      const sa = a == null ? '' : String(a);
+      const sb = b == null ? '' : String(b);
+      if (sa === sb) return;
+      if (type === 'secret') out.push({ f: label, from: sa ? '***' : '(kosong)', to: sb ? '*** (diubah)' : '(dipadam)' });
+      else out.push({ f: label, from: fmtVal(a, type), to: fmtVal(b, type) });
+    });
+    return out;
+  }
+
+  const LOG_ACTIONS = {
+    cipta: 'Device diterima',
+    edit: 'Maklumat diubah',
+    status: 'Status ditukar',
+    serahan: 'Serahan semula',
+    pindah: 'Dipindah ke cloud',
+    pulih: 'Dipulihkan dari backup',
+  };
+
+  function renderLog(job) {
+    const log = (job.log || []).slice().reverse();
+    const body = log.length
+      ? log
+          .map(
+            (e) => `<li>
+          <div><strong>${esc(LOG_ACTIONS[e.action] || e.action)}</strong> <span class="muted small">· ${esc(e.by || '-')} · ${fmtDate(e.at)}</span></div>
+          ${
+            e.changes && e.changes.length
+              ? `<ul class="log-changes">${e.changes
+                  .map((c) => `<li>${esc(c.f)}: ${c.from !== '' && c.from != null ? `<s>${esc(c.from)}</s> → ` : ''}${esc(c.to)}</li>`)
+                  .join('')}</ul>`
+              : ''
+          }
+        </li>`
+          )
+          .join('')
+      : '<li class="muted small">Tiada log. Rekod ini dicipta sebelum log perubahan diaktifkan.</li>';
+    return `<details class="card log-card"><summary><h3>Log Perubahan (${log.length})</h3></summary><ul class="log">${body}</ul>
+      <p class="small muted">Log tidak boleh dipadam atau diubah oleh staff.</p></details>`;
+  }
+
   function canEditSettings() {
     return !CLOUD || DB.isOwner();
   }
@@ -266,13 +348,59 @@
     $('#btnOut').addEventListener('click', () => DB.signOut());
   }
 
+  function viewVerify() {
+    ready = false;
+    setLoggedIn(false);
+    const u = DB.currentUser();
+    app.innerHTML = `
+      <div class="card form login">
+        ${OGFIX_LOGO('login-logo')}
+        <h2>Sahkan Email Anda</h2>
+        <p>Email pengesahan telah dihantar ke <strong>${esc(u && u.email)}</strong>.</p>
+        <ol class="steps">
+          <li>Buka email tersebut (semak juga folder <strong>Spam</strong>).</li>
+          <li>Klik link pengesahan dalam email.</li>
+          <li>Kembali ke sini dan tekan <em>Saya Dah Sahkan</em>.</li>
+        </ol>
+        <div class="form-error" id="verifyMsg" hidden></div>
+        <div class="btn-col">
+          <button class="btn primary" id="btnVerified">Saya Dah Sahkan</button>
+          <button class="btn" id="btnResend">Hantar Semula Email</button>
+          <button class="btn" id="btnOut">Log Keluar</button>
+        </div>
+      </div>`;
+    const msg = (t, ok) => {
+      const b = $('#verifyMsg');
+      b.hidden = false;
+      b.classList.toggle('ok', !!ok);
+      b.textContent = t;
+    };
+    $('#btnVerified').addEventListener('click', async () => {
+      try {
+        if (await DB.refreshUser()) return enterSession(DB.currentUser());
+        msg('Email belum disahkan. Klik link dalam email dahulu, kemudian cuba lagi.');
+      } catch (err) {
+        msg(errMsg(err));
+      }
+    });
+    $('#btnResend').addEventListener('click', async () => {
+      try {
+        await DB.sendVerification();
+        msg('Email pengesahan dihantar semula. Semak inbox / spam.', true);
+      } catch (err) {
+        msg(errMsg(err));
+      }
+    });
+    $('#btnOut').addEventListener('click', () => DB.signOut());
+  }
+
   async function enterSession(u) {
     ready = false;
     if (!u) return viewLogin();
     app.innerHTML = '<p class="muted">Memuatkan data…</p>';
     try {
       const role = await DB.startSession();
-      if (role === 'pending') return viewPending();
+      if (role === 'pending') return DB.isVerified() ? viewPending() : viewVerify();
       await loadSettings();
       setLoggedIn(true);
       ready = true;
@@ -313,7 +441,7 @@
     const draw = (jobs) => {
       const counts = {};
       jobs.forEach((j) => (counts[j.status] = (counts[j.status] || 0) + 1));
-      const isActive = (j) => !['diambil', 'batal'].includes(j.status);
+      const isActive = (j) => j.status !== 'diambil';
       const active = jobs.filter(isActive).length;
       const today = new Date().toDateString();
 
@@ -381,6 +509,7 @@
     if (editId && !job) throw new Error('Rekod tidak dijumpai: ' + editId);
     const j = job || { customer: {}, device: {}, accessories: [], condition: [] };
     let photos = job ? (await DB.getPhotos(job)).slice() : [];
+    const origPhotoCount = photos.length;
     let photosChanged = false;
 
     const checks = (name, options, selected) =>
@@ -549,6 +678,17 @@
       delete data.photos;
       localStorageSet('lastStaff', data.staff);
 
+      if (job) {
+        const changes = diffJob(job, data);
+        if (photosChanged) changes.push({ f: 'Gambar', from: String(origPhotoCount), to: String(photos.length) });
+        if (!changes.length) {
+          toast('Tiada perubahan');
+          location.hash = '#/job/' + encodeURIComponent(job.id);
+          return;
+        }
+        addLog(data, 'edit', changes);
+      }
+
       if (!job) {
         data.id = await nextId();
         data.createdAt = now;
@@ -557,6 +697,7 @@
         data.signIn = pad.toDataURL();
         data.agreed = true;
         data.pickup = null;
+        addLog(data, 'cipta', photos.length ? [{ f: 'Gambar', from: '', to: String(photos.length) }] : []);
       }
       let result;
       try {
@@ -577,7 +718,7 @@
   async function viewJob(id, params) {
     const job = await DB.getJob(id);
     if (!job) throw new Error('Rekod tidak dijumpai: ' + id);
-    const closed = ['diambil', 'batal'].includes(job.status);
+    const closed = job.status === 'diambil';
     const link = customerLink(job, settings);
 
     app.innerHTML = `
@@ -627,7 +768,7 @@
             </div>
           </div>
         </div>
-        <div class="main" id="receiptBox">${renderReceipt(job, settings)}</div>
+        <div class="main"><div id="receiptBox">${renderReceipt(job, settings)}</div>${renderLog(job)}</div>
       </div>`;
 
     // Gambar dimuat berasingan (mod cloud) supaya halaman cepat dibuka
@@ -689,6 +830,10 @@
           return;
         }
         const now = new Date().toISOString();
+        const changes = [];
+        if (status !== job.status) changes.push({ f: 'Status', from: R.statusInfo(job.status).label, to: R.statusInfo(status).label });
+        if (note) changes.push({ f: 'Nota', from: '', to: note });
+        addLog(job, 'status', changes);
         job.status = status;
         job.updatedAt = now;
         job.history = (job.history || []).concat([{ status, at: now, note, by: me() }]);
@@ -783,6 +928,17 @@
         signOut: pad.toDataURL(),
         staff: me(),
       };
+      const changes = [
+        { f: 'Harga akhir', from: '', to: fmtVal(job.pickup.finalPrice, 'money') },
+        { f: 'Dibayar', from: '', to: fmtVal(job.pickup.paid, 'money') + ' (' + job.pickup.method + ')' },
+      ];
+      if (job.pickup.warrantyDays) changes.push({ f: 'Waranti', from: '', to: job.pickup.warrantyDays + ' hari' });
+      if (job.device && job.device.passcode) {
+        // Passcode tidak diperlukan lagi selepas device diserahkan – padam untuk privasi pelanggan
+        job.device = Object.assign({}, job.device, { passcode: '' });
+        changes.push({ f: 'Passcode', from: '***', to: '(dipadam automatik)' });
+      }
+      addLog(job, 'serahan', changes);
       job.status = 'diambil';
       job.updatedAt = now;
       job.history = (job.history || []).concat([{ status: 'diambil', at: now, note: job.pickup.note, by: me() }]);
@@ -830,7 +986,7 @@
         CLOUD && DB.isOwner()
           ? `<div class="card">
         <h2>Staff</h2>
-        <p class="small muted">Cara tambah staff: (1) staff buka app ini dan tekan <em>"Daftar akaun"</em> guna email mereka, (2) owner tambah email yang sama di bawah. Staff boleh terima device, kemaskini status dan rekod serahan. Hanya owner boleh padam rekod dan ubah tetapan kedai.</p>
+        <p class="small muted">Cara tambah staff: (1) staff buka app ini, tekan <em>"Daftar akaun"</em> guna email mereka dan <strong>klik link pengesahan</strong> yang dihantar ke email tersebut, (2) owner tambah email yang sama di bawah. Tambah email hanya selepas staff sendiri mengesahkan mereka telah mendaftar. Staff boleh terima device, kemaskini status dan rekod serahan. Hanya owner boleh padam rekod dan ubah tetapan kedai.</p>
         <ul class="staff-list" id="staffList"></ul>
         <form id="staffForm" class="inline-form">
           <input name="email" type="email" placeholder="email staff" required>
@@ -958,6 +1114,7 @@
             const photos = j.photos || [];
             const copy = Object.assign({}, j);
             delete copy.photos;
+            addLog(copy, 'pindah');
             await DB.putJob(copy, photos);
             done++;
           } catch (err) {
@@ -1051,6 +1208,7 @@
             const photos = j.photos || [];
             const copy = Object.assign({}, j);
             delete copy.photos;
+            addLog(copy, 'pulih');
             await DB.putJob(copy, photos);
           }
           if (data.settings && confirm('Pulihkan juga tetapan kedai dari backup?')) {

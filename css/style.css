@@ -201,3 +201,18 @@ fieldset.plain { border: 0; padding: 0; margin: 0; min-width: 0; }
 .staff-list li { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--line); word-break: break-all; }
 .inline-form { display: flex; gap: 8px; }
 .inline-form input { margin: 0; flex: 1; }
+
+/* ---------- log perubahan ---------- */
+.log-card { max-width: 640px; margin: 16px auto 0; }
+.log-card summary { cursor: pointer; list-style: none; }
+.log-card summary::-webkit-details-marker { display: none; }
+.log-card summary h3 { display: inline; }
+.log-card summary::after { content: '▾'; float: right; color: var(--muted); }
+.log-card[open] summary::after { content: '▴'; }
+.log { list-style: none; padding: 0; margin: 12px 0 0; }
+.log > li { padding: 10px 0; border-top: 1px solid var(--line); }
+.log-changes { margin: 6px 0 0; padding-left: 18px; font-size: 13px; }
+.log-changes s { color: var(--muted); }
+.steps { padding-left: 20px; }
+.steps li { margin-bottom: 4px; }
+@media print { .log-card { display: none; } }
