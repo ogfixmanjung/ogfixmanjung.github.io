@@ -81,7 +81,7 @@ Mod dipilih melalui fail `js/config.js`. Jika `FIREBASE_CONFIG = null`, app guna
 ### Mula guna
 
 1. **Owner** buka app, masukkan email owner (sama seperti dalam Rules) dan password baru, kemudian tekan **"Daftar akaun"**. Akaun pertama dengan email owner akan menjadi owner.
-2. **Staff** buka app di telefon sendiri, dan daftar dengan email serta password mereka. Mereka akan nampak skrin *Menunggu Kelulusan*.
+2. **Staff** buka app di telefon sendiri, daftar dengan email serta password mereka, dan klik link pengesahan dalam email. Kemudian mereka akan nampak skrin *Menunggu Kelulusan*.
 3. Owner buka **Tetapan → Staff**, tambah email staff, dan minta staff tekan **Semak Semula**.
 4. Jika peranti kaunter ada rekod lama (mod tempatan), owner buka **Tetapan → Pindah Data Lama ke Cloud** pada peranti tersebut.
 
@@ -95,6 +95,13 @@ Mod dipilih melalui fail `js/config.js`. Jika `FIREBASE_CONFIG = null`, app guna
 | Ubah tetapan kedai, urus staff | ✅ | ❌ |
 
 Orang luar yang mendaftar tetapi emailnya tidak ditambah oleh owner tidak boleh melihat sebarang data.
+
+### Keselamatan tambahan
+
+- **Pengesahan email**: staff mesti klik link pengesahan dalam email sebelum boleh mengakses data, walaupun email mereka telah ditambah oleh owner.
+- **Log perubahan**: setiap perubahan pada job direkodkan, iaitu siapa, bila, dan nilai lama → baru. Server menolak sebarang kemaskini oleh staff yang tidak menambah log atas nama mereka sendiri. Log lama tidak boleh dipadam atau diubah oleh staff.
+- **Passcode dipadam automatik** apabila device diserahkan semula kepada pelanggan.
+- Job berstatus *Dibatalkan* kekal dalam senarai Aktif sehingga serahan semula direkodkan.
 
 ### Nota mod cloud
 

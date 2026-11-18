@@ -14,16 +14,39 @@ service cloud.firestore {
       return request.auth != null && request.auth.token.email != null;
     }
 
+    function myEmail() {
+      return request.auth.token.email.lower();
+    }
+
     function isOwner() {
-      return signedIn() && request.auth.token.email.lower() == ownerEmail();
+      return signedIn() && myEmail() == ownerEmail();
+    }
+
+    // Staff mesti: (1) sahkan email, (2) emailnya ditambah oleh owner
+    function isApprovedStaff() {
+      return signedIn() &&
+        request.auth.token.email_verified == true &&
+        exists(/databases/$(database)/documents/config/staff) &&
+        myEmail() in get(/databases/$(database)/documents/config/staff).data.emails;
     }
 
     function isStaff() {
-      return isOwner() || (
-        signedIn() &&
-        exists(/databases/$(database)/documents/config/staff) &&
-        request.auth.token.email.lower() in get(/databases/$(database)/documents/config/staff).data.emails
-      );
+      return isOwner() || isApprovedStaff();
+    }
+
+    // Log perubahan: setiap kemaskini mesti tambah TEPAT satu catatan baru atas
+    // nama pengguna sendiri, dan catatan lama tidak boleh dipadam / diubah.
+    function logAppendedByMe() {
+      let oldLog = resource.data.get('log', []);
+      let newLog = request.resource.data.get('log', []);
+      return newLog.size() == oldLog.size() + 1 &&
+        newLog[0:oldLog.size()] == oldLog &&
+        newLog[oldLog.size()].by == myEmail();
+    }
+
+    function newJobLogOk() {
+      let newLog = request.resource.data.get('log', []);
+      return newLog.size() >= 1 && newLog[newLog.size() - 1].by == myEmail();
     }
 
     // Senarai staff: hanya owner boleh ubah
@@ -39,15 +62,16 @@ service cloud.firestore {
       allow write: if isOwner();
     }
 
-    // Rekod device: staff boleh tambah & kemaskini, owner sahaja boleh padam
+    // Rekod device: staff boleh tambah & kemaskini (dengan log), owner sahaja boleh padam
     match /jobs/{id} {
-      allow read, create, update: if isStaff();
+      allow read: if isStaff();
+      allow create: if isOwner() || (isStaff() && newJobLogOk());
+      allow update: if isOwner() || (isStaff() && logAppendedByMe());
       allow delete: if isOwner();
     }
 
     match /photos/{id} {
-      allow read, create, update: if isStaff();
-      allow delete: if isStaff();
+      allow read, create, update, delete: if isStaff();
     }
 
     match /counters/{id} {
