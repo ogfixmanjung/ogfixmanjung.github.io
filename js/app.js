@@ -594,7 +594,7 @@
             .map(
               (j) => `<a class="job" href="#/job/${encodeURIComponent(j.id)}">
               <div class="job-top"><strong>${esc(j.id)}</strong>${badge(j.status)}</div>
-              <div class="job-dev">${esc([j.device.brand, j.device.model].filter(Boolean).join(' '))}${j.location && j.status !== 'diambil' ? ` <span class="loc">📍 ${esc(j.location)}</span>` : ''}</div>
+              <div class="job-dev">${esc([j.device.brand, j.device.model].filter(Boolean).join(' '))}${j.pickupCode && j.status !== 'diambil' ? ` <span class="kod">🔑 ${esc(j.pickupCode)}</span>` : ''}${j.location && j.status !== 'diambil' ? ` <span class="loc">📍 ${esc(j.location)}</span>` : ''}</div>
               <div class="muted small">${esc(j.customer.name)} · ${esc(j.customer.phone)}</div>
               <div class="small job-prob">${esc(j.problem)}</div>
               <div class="muted small">Diterima ${fmtDate(j.createdAt)}${j.eta ? ' · Anggaran siap ' + fmtDate(j.eta, false) : ''}</div>
@@ -875,7 +875,11 @@
     app.innerHTML = `
       ${
         params && params.get('baru')
-          ? `<div class="notice">✅ Device telah direkodkan. Hantar resit digital kepada pelanggan melalui WhatsApp sekarang.</div>`
+          ? `<div class="notice">✅ Device telah direkodkan.${
+              job.pickupCode
+                ? `<div class="notice-code">✍️ Tulis <strong>${esc(job.pickupCode)}</strong> pada sticker / kertas dan lekat pada device${job.location ? ` (simpan di 📍 ${esc(job.location)})` : ''}.</div>`
+                : ''
+            }Kemudian hantar resit digital kepada pelanggan melalui WhatsApp.</div>`
           : ''
       }
       <div class="job-layout">
@@ -1778,7 +1782,7 @@
   /* ---------------- start ---------------- */
   /* ---------- semakan versi: pastikan semua telefon guna versi terbaru ----------
      Bila kemaskini app: naikkan APP_VERSION, version.json dan ?v= dalam index.html/resit.html */
-  const APP_VERSION = '11';
+  const APP_VERSION = '12';
 
   async function latestVersion() {
     try {

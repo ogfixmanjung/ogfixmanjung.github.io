@@ -302,3 +302,8 @@ body:not(.is-owner) .owner-only { display: none; }
 
 /* atribut hidden sentiasa menang (cth: label dalam .form) */
 [hidden] { display: none !important; }
+
+/* kod ambil untuk staff */
+.kod { display: inline-block; font-size: 13px; font-weight: 800; color: var(--text); background: #fef3c7; border: 1px solid #fcd34d; border-radius: 6px; padding: 1px 7px; vertical-align: middle; letter-spacing: .08em; font-variant-numeric: tabular-nums; }
+.notice-code { font-size: 18px; margin: 8px 0; padding: 10px 12px; background: #fff; border: 2px dashed #16a34a; border-radius: 10px; }
+.notice-code strong { font-size: 26px; letter-spacing: .15em; font-family: ui-monospace, Menlo, Consolas, monospace; }
