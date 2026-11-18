@@ -226,6 +226,7 @@
         ${balance !== '' ? row('Anggaran baki', money(balance)) : ''}
         ${row('Anggaran siap', job.eta ? fmtDate(job.eta, false) : '')}
         ${row('Diterima oleh', esc(job.staff))}
+        ${!isPublic ? row('PIC repair', esc(job.pic)) : ''}
       </section>
 
       ${job.notes ? `<section><h3>Nota</h3><p>${esc(job.notes)}</p></section>` : ''}
