@@ -1,5 +1,5 @@
 /* Service worker: membolehkan app dibuka tanpa internet (offline). */
-const CACHE = 'ogfix-v5';
+const CACHE = 'ogfix-v6';
 const ASSETS = [
   './',
   './index.html',
