@@ -70,6 +70,38 @@
     return d.toISOString();
   }
 
+  /* Pattern disimpan sebagai "P:1-2-3-6-9" (titik 1-9, kiri ke kanan, atas ke bawah) */
+  function isPattern(code) {
+    return /^P:\d(-\d)*$/.test(String(code || ''));
+  }
+
+  function patternSeq(code) {
+    return isPattern(code) ? String(code).slice(2).split('-').map(Number) : [];
+  }
+
+  function patternSvg(code, size = 96) {
+    const seq = patternSeq(code);
+    const xy = (n) => [((n - 1) % 3) * 40 + 20, Math.floor((n - 1) / 3) * 40 + 20];
+    const dots = [1, 2, 3, 4, 5, 6, 7, 8, 9]
+      .map((n) => {
+        const [x, y] = xy(n);
+        const k = seq.indexOf(n);
+        const fill = k === 0 ? '#16a34a' : k > 0 ? '#0f172a' : '#cbd5e1';
+        return `<circle cx="${x}" cy="${y}" r="${k === 0 ? 7 : 5}" fill="${fill}"/>`;
+      })
+      .join('');
+    const line = seq.length > 1 ? `<polyline points="${seq.map((n) => xy(n).join(',')).join(' ')}" fill="none" stroke="#f97316" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>` : '';
+    const last = seq.length > 1 ? xy(seq[seq.length - 1]) : null;
+    const end = last ? `<circle cx="${last[0]}" cy="${last[1]}" r="9" fill="none" stroke="#f97316" stroke-width="2"/>` : '';
+    return `<svg class="pattern-mini" viewBox="0 0 120 120" width="${size}" height="${size}" role="img" aria-label="Pattern ${seq.join(' ke ')}">${line}${dots}${end}</svg>`;
+  }
+
+  function passcodeHtml(code) {
+    if (!code) return '';
+    if (!isPattern(code)) return esc(code);
+    return `<span class="pc-pattern">${patternSvg(code)}<span class="small">Pattern: ${patternSeq(code).join(' → ')}<br><span class="muted"><span style="color:#16a34a">●</span> mula · <span style="color:#f97316">○</span> tamat</span></span></span>`;
+  }
+
   function row(label, value) {
     if (value === '' || value == null || value === '-') return '';
     return `<div class="r-row"><span>${esc(label)}</span><strong>${value}</strong></div>`;
@@ -174,7 +206,7 @@
         ${row('Jenama / Model', esc([d.brand, d.model].filter(Boolean).join(' ')))}
         ${row('Warna', esc(d.color))}
         ${row('IMEI / Serial', esc(d.imei))}
-        ${!isPublic ? row('Passcode / Pattern', esc(d.passcode)) : ''}
+        ${!isPublic ? row(isPattern(d.passcode) ? 'Pattern' : 'Passcode / PIN', passcodeHtml(d.passcode)) : ''}
         ${!isPublic && job.location && job.status !== 'diambil' ? row('📍 Lokasi simpanan', esc(job.location)) : ''}
       </section>
 
@@ -306,6 +338,9 @@
   }
 
   window.R = {
+    isPattern,
+    patternSeq,
+    patternSvg,
     STATUS,
     DEFAULT_TERMS,
     esc,
