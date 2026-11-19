@@ -45,7 +45,7 @@
 
   function money(n) {
     if (n === '' || n == null || isNaN(Number(n))) return '-';
-    return 'RM ' + Number(n).toFixed(2);
+    return 'RM ' + Number(n).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
 
   function fmtDate(iso, withTime = true) {
@@ -219,7 +219,9 @@
         ${job.conditionNote ? `<p class="small">${esc(job.conditionNote)}</p>` : ''}
       </section>
 
-      <section><h3>Masalah Dilaporkan</h3><p>${esc(job.problem) || '-'}</p></section>
+      <section><h3>Masalah Dilaporkan</h3><p>${esc(job.problem) || '-'}</p>
+        ${job.intakeWarranty ? `<div class="r-row"><span>Status waranti semasa diterima</span><strong>${esc({ tidak: 'Tiada waranti', kedai: 'Waranti kedai', pengeluar: 'Waranti pengeluar / lain' }[job.intakeWarranty] || '')}</strong></div>` : ''}
+      </section>
 
       <section><h3>Kos & Tempoh</h3>
         ${row('Anggaran harga', money(job.estimate))}
@@ -304,6 +306,7 @@
         history: (job.history || []).map((h) => ({ status: h.status, at: h.at, note: h.note || '' })),
         signed: !!job.signIn,
         warrantyOf: job.warrantyOf || '',
+        intakeWarranty: job.intakeWarranty || '',
         pickup: pk,
       },
       shop: { name: shop.name, address: shop.address, phone: shop.phone, terms: shop.terms },

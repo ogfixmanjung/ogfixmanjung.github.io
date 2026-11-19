@@ -30,6 +30,10 @@
     pics: ['Acap', 'Azim', 'Hakim', 'Haziq', 'Iqbal'],
     slogan: 'Your device lifesaver',
     reviewLink: '',
+    commissionTarget: 50000,
+    commissionRate: 10,
+    commissionMode: 'lebihan',
+    showTargetToTech: true,
     reviewMsg:
       'Terima kasih kerana memilih {kedai}! 🙏\n\nKalau berpuas hati dengan servis kami, sudi tak luangkan 1 minit untuk beri review di Google? Ia sangat membantu kedai kecil macam kami:\n{link}',
     abandonDays: 30,
@@ -113,6 +117,7 @@
     ['Staff terima', (j) => j.staff],
     ['Lokasi simpanan', (j) => j.location],
     ['PIC repair', (j) => j.pic],
+    ['Status waranti semasa terima', (j) => (j.intakeWarranty ? INTAKE_WARRANTY[j.intakeWarranty] : '')],
     ['Nota', (j) => j.notes],
   ];
 
@@ -205,6 +210,49 @@
       ${wTxt ? `<div class="small">${wTxt}</div>` : ''}
       ${buttons || ''}
     </li>`;
+  }
+
+  /* ---------- lencana waranti (job yang telah diambil) ---------- */
+  function warrantyBadge(j) {
+    if (j.status !== 'diambil' || !j.pickup) return '';
+    const w = warrantyUntil(j);
+    if (!w) return ' <span class="wbadge none">Tiada waranti</span>';
+    return warrantyActive(j)
+      ? ` <span class="wbadge on">🛡 Waranti aktif · hingga ${fmtDate(w.toISOString(), false)}</span>`
+      : ` <span class="wbadge off">Waranti tamat ${fmtDate(w.toISOString(), false)}</span>`;
+  }
+
+  const INTAKE_WARRANTY = { tidak: 'Tiada waranti', kedai: 'Waranti kedai', pengeluar: 'Waranti pengeluar / lain' };
+
+  /* ---------- komisen technician (bulanan) ---------- */
+  function monthKey(d) {
+    d = new Date(d);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  }
+
+  /* Jualan setiap PIC ikut bulan (harga akhir job yang diambil dalam [start, end)) */
+  function picMonthlySales(jobs, start, end) {
+    const out = {};
+    jobs.forEach((j) => {
+      if (!j.pic || !j.pickup || !j.pickup.at) return;
+      const t = new Date(j.pickup.at).getTime();
+      if (t < start.getTime() || t >= end.getTime()) return;
+      const m = monthKey(j.pickup.at);
+      out[j.pic] = out[j.pic] || {};
+      out[j.pic][m] = (out[j.pic][m] || 0) + Number(j.pickup.finalPrice || 0);
+    });
+    return out;
+  }
+
+  function commissionFor(sales) {
+    const target = Number(settings.commissionTarget || 0);
+    const rate = Number(settings.commissionRate || 0) / 100;
+    if (sales < target || !rate) return 0;
+    return settings.commissionMode === 'semua' ? sales * rate : (sales - target) * rate;
+  }
+
+  function commissionRule() {
+    return `${Number(settings.commissionRate || 0)}% ${settings.commissionMode === 'semua' ? 'atas semua jualan' : 'atas jualan melebihi sasaran'} selepas capai sasaran ${money(settings.commissionTarget)} sebulan`;
   }
 
   /* ---------- pilihan tempoh waranti ---------- */
@@ -798,9 +846,13 @@
       const today = new Date().toDateString();
 
       const partial = CLOUD && !DB.isFullLoaded();
+      const warrantyN = jobs.filter((j) => j.status === 'diambil' && warrantyActive(j)).length;
       const tiles = [{ key: 'aktif', label: 'Dalam kedai', color: '#18201b', n: active }]
         .concat(STATUS.map((s) => ({ key: s.key, label: s.label, color: s.color, n: partial && !isActive({ status: s.key }) ? null : counts[s.key] || 0 })))
-        .concat([{ key: 'semua', label: 'Semua rekod', color: '#94a3b8', n: partial ? null : jobs.length }]);
+        .concat([
+          { key: 'waranti', label: '🛡 Waranti aktif', color: '#15803d', n: partial ? null : warrantyN },
+          { key: 'semua', label: 'Semua rekod', color: '#94a3b8', n: partial ? null : jobs.length },
+        ]);
       $('#stats').innerHTML = tiles
         .map(
           (t) => `<button type="button" class="tile ${listFilter.status === t.key ? 'active' : ''}" data-status="${t.key}" style="border-left-color:${t.color}">
@@ -818,6 +870,7 @@
       const filters = [
         { key: 'aktif', label: `Aktif (${active})` },
         { key: 'semua', label: partial ? 'Semua rekod' : `Semua (${jobs.length})` },
+        { key: 'waranti', label: partial ? '🛡 Waranti aktif' : `🛡 Waranti aktif (${warrantyN})` },
       ].concat(STATUS.map((s) => ({ key: s.key, label: s.label + (partial && !isActive({ status: s.key }) ? '' : ` (${counts[s.key] || 0})`) })));
       $('#f').innerHTML = filters
         .map((f) => `<option value="${f.key}" ${listFilter.status === f.key ? 'selected' : ''}>${esc(f.label)}</option>`)
@@ -827,7 +880,8 @@
       const qDigits = q.replace(/\D/g, '');
       const out = jobs.filter((j) => {
         if (listFilter.status === 'aktif' && !isActive(j)) return false;
-        if (!['aktif', 'semua'].includes(listFilter.status) && j.status !== listFilter.status) return false;
+        if (listFilter.status === 'waranti' && !(j.status === 'diambil' && warrantyActive(j))) return false;
+        if (!['aktif', 'semua', 'waranti'].includes(listFilter.status) && j.status !== listFilter.status) return false;
         if (listFilter.pic === '__none' && j.pic) return false;
         if (listFilter.pic && listFilter.pic !== '__none' && j.pic !== listFilter.pic) return false;
         if (!q) return true;
@@ -866,7 +920,9 @@
             .map(
               (j) => `<a class="job" href="#/job/${encodeURIComponent(j.id)}">
               <div class="job-top"><strong>${esc(j.id)}</strong>${badge(j.status)}</div>
-              <div class="job-dev">${esc([j.device.brand, j.device.model].filter(Boolean).join(' '))}${j.pickupCode && j.status !== 'diambil' ? ` <span class="kod">🔑 ${esc(j.pickupCode)}</span>` : ''}${j.location && j.status !== 'diambil' ? ` <span class="loc">📍 ${esc(j.location)}</span>` : ''}</div>
+              <div class="job-dev">${esc([j.device.brand, j.device.model].filter(Boolean).join(' '))}${j.pickupCode && j.status !== 'diambil' ? ` <span class="kod">🔑 ${esc(j.pickupCode)}</span>` : ''}${j.location && j.status !== 'diambil' ? ` <span class="loc">📍 ${esc(j.location)}</span>` : ''}${
+                j.status !== 'diambil' && (j.warrantyOf || ['kedai', 'pengeluar'].includes(j.intakeWarranty)) ? ` <span class="kod">🛡 ${j.warrantyOf ? 'Claim waranti' : esc(INTAKE_WARRANTY[j.intakeWarranty])}</span>` : ''
+              }${warrantyBadge(j)}</div>
               <div class="muted small">${esc(j.customer.name)} · ${esc(j.customer.phone)}${j.pic ? ` · <span class="pic">👤 ${esc(j.pic)}</span>` : ''}</div>
               <div class="small job-prob">${esc(j.problem)}</div>
               <div class="muted small">Diterima ${fmtDate(j.createdAt)}${j.eta ? ' · Anggaran siap ' + fmtDate(j.eta, false) : ''}</div>
@@ -944,6 +1000,12 @@
           <div class="grid2">
             <label>Nama pelanggan *<input name="name" required value="${esc(j.customer.name)}" autocomplete="off"></label>
             <label>No. telefon (WhatsApp) *<input name="phone" type="tel" required inputmode="tel" placeholder="012-3456789" value="${esc(j.customer.phone)}"></label>
+          </div>
+          <div class="intake-w">
+            <div class="sig-label">🛡 Status waranti device semasa diterima *</div>
+            <div class="seg">${Object.entries(INTAKE_WARRANTY)
+              .map(([k, l]) => `<label><input type="radio" name="intakeWarranty" value="${k}" ${(j.intakeWarranty || (j.warrantyOf ? 'kedai' : '')) === k ? 'checked' : ''}><span>${esc(l)}</span></label>`)
+              .join('')}</div>
           </div>
           <div id="warrantyBanner"></div>
           <div id="custHistory"></div>
@@ -1103,6 +1165,8 @@
         fillDevice(src);
         if (claim) {
           warrantyOf = src.id;
+          const kedai = $('#form [name=intakeWarranty][value=kedai]');
+          if (kedai) kedai.checked = true;
           const pr = $('#form [name=problem]');
           if (!/^Claim waranti/.test(pr.value)) pr.value = `Claim waranti (${src.id}): ` + pr.value;
           $('#form [name=estimate]').value = 0;
@@ -1174,6 +1238,7 @@
       const pcType = fd.get('pcType') || 'none';
       const patSeq = pPad.get();
       if (pcType === 'pattern' && patSeq.length < 4) errors.push('Pattern (minimum 4 titik)');
+      if (!job && !fd.get('intakeWarranty')) errors.push('Status waranti device');
       if (pcType === 'pin' && !fd.get('passcode').trim()) errors.push('PIN / kata laluan');
       if (!job) {
         if (!fd.get('agree')) errors.push('Persetujuan terma & syarat');
@@ -1212,6 +1277,7 @@
         staff: fd.get('staff').trim(),
         pic: fd.get('pic') || '',
         location: fd.get('location').trim(),
+        intakeWarranty: fd.get('intakeWarranty') || (job && job.intakeWarranty) || '',
         notes: fd.get('notes').trim(),
         updatedAt: now,
       });
@@ -1239,6 +1305,7 @@
         data.pickup = null;
         data.pickupCode = await newPickupCode();
         if (warrantyOf) data.warrantyOf = warrantyOf;
+        data.intakeWarranty = fd.get('intakeWarranty') || '';
         addLog(
           data,
           'cipta',
@@ -1763,6 +1830,20 @@
         return ea === eb ? (a.createdAt < b.createdAt ? -1 : 1) : ea < eb ? -1 : 1;
       };
       const my = active.filter((j) => j.pic === mine);
+      let progress = '';
+      if (settings.showTargetToTech !== false && Number(settings.commissionTarget) > 0) {
+        const now = new Date();
+        const ms = new Date(now.getFullYear(), now.getMonth(), 1);
+        const me2 = (picMonthlySales(jobs, ms, new Date(now.getFullYear(), now.getMonth() + 1, 1))[mine] || {})[monthKey(now)] || 0;
+        const target = Number(settings.commissionTarget);
+        const pct = Math.min(100, Math.round((me2 / target) * 100));
+        const com = commissionFor(me2);
+        progress = `<section class="card target-card">
+          <div class="target-head"><strong>🎯 Sasaran bulan ini</strong><span>${money(me2)} / ${money(target)}</span></div>
+          <div class="target-bar"><span style="width:${pct}%"></span></div>
+          <div class="small muted">${me2 >= target ? `✅ Sasaran dicapai · anggaran komisen <strong>${money(com)}</strong>` : `${pct}% · lagi ${money(target - me2)} untuk layak komisen`}</div>
+        </section>`;
+      }
       const todo = my.filter((j) => ['diterima', 'diperiksa', 'dibaiki'].includes(j.status)).sort(sortQ);
       const part = my.filter((j) => j.status === 'menunggu_part').sort(sortQ);
       const done = my.filter((j) => ['siap', 'batal'].includes(j.status));
@@ -1774,6 +1855,7 @@
           list.length ? `<div class="mjobs">${list.map((j) => card(j, actFn(j))).join('')}</div>` : `<p class="muted small">${empty}</p>`
         }</section>`;
       $('#mineBody').innerHTML =
+        progress +
         `<div class="tiles mine-tiles">
           <div class="tile" style="border-left-color:#0891b2"><span class="tile-label">Perlu dibuat</span><span class="tile-n">${todo.length}</span></div>
           <div class="tile" style="border-left-color:#d97706"><span class="tile-label">Tunggu part</span><span class="tile-n">${part.length}</span></div>
@@ -1983,6 +2065,46 @@
     </div>`;
   }
 
+  function commissionCard(jobs, start, end) {
+    const bySales = picMonthlySales(jobs, start, end);
+    const months = new Set();
+    Object.values(bySales).forEach((m) => Object.keys(m).forEach((k) => months.add(k)));
+    const fullMonths = start.getDate() === 1 && end.getDate() === 1 && start.getHours() === 0 && end.getHours() === 0;
+    if (!fullMonths)
+      return `<div class="card"><h3>💰 Komisen technician</h3><p class="small muted">Komisen dikira ikut bulan. Pilih tempoh <strong>Bulan ini</strong>, <strong>Bulan lepas</strong> atau <strong>Tahun ini</strong> untuk melihat kiraan komisen.</p></div>`;
+    const single = monthKey(start) === monthKey(new Date(end.getTime() - 1));
+    const pics = Array.from(new Set(picList().concat(Object.keys(bySales))));
+    const target = Number(settings.commissionTarget || 0);
+    const rows = pics
+      .map((pic) => {
+        const m = bySales[pic] || {};
+        const sales = Object.values(m).reduce((a, b) => a + b, 0);
+        const com = Object.values(m).reduce((a, v) => a + commissionFor(v), 0);
+        const hit = Object.values(m).filter((v) => v >= target).length;
+        return { pic, sales, com, hit, months: Object.keys(m).length };
+      })
+      .sort((a, b) => b.sales - a.sales);
+    const total = rows.reduce((a, r) => a + r.com, 0);
+    return `<div class="card">
+      <h3>💰 Komisen technician</h3>
+      <p class="small muted">${esc(commissionRule())}. Jualan = harga akhir job yang diambil, ikut PIC.${
+        single ? '' : ' Tempoh ini merangkumi lebih dari satu bulan — sasaran dikira bagi setiap bulan.'
+      }</p>
+      <table class="tbl"><thead><tr><th>PIC</th><th class="num">Jualan</th>${
+        single ? '<th>Sasaran</th>' : '<th class="num">Bulan capai sasaran</th>'
+      }<th class="num">Komisen</th></tr></thead><tbody>${rows
+        .map((r) => {
+          const pct = target ? Math.min(100, Math.round((r.sales / target) * 100)) : 0;
+          return `<tr><td>${esc(r.pic)}</td><td class="num">${money(r.sales)}</td>${
+            single
+              ? `<td><div class="target-bar sm"><span style="width:${pct}%"></span></div><span class="small ${r.sales >= target ? 'w-ok' : 'muted'}">${pct}%</span></td>`
+              : `<td class="num">${r.hit} / ${r.months}</td>`
+          }<td class="num"><strong>${money(r.com)}</strong></td></tr>`;
+        })
+        .join('')}</tbody><tfoot><tr><td colspan="${single ? 3 : 3}"><strong>Jumlah komisen</strong></td><td class="num"><strong>${money(total)}</strong></td></tr></tfoot></table>
+    </div>`;
+  }
+
   async function viewReport() {
     if (CLOUD && !DB.isOwner()) {
       app.innerHTML = '<div class="card"><h2>Laporan</h2><p>Hanya owner boleh melihat laporan jualan.</p></div>';
@@ -2033,6 +2155,8 @@
           <div class="card"><h3>Kutipan ikut cara bayaran</h3>${rankedBars(r.methods, money)}</div>
           <div class="card"><h3>Device diterima ikut jenama</h3>${rankedBars(r.brands, (v) => v + ' unit')}</div>
         </div>
+
+        ${commissionCard(jobs, start, end)}
 
         <div class="card">
           <h3>Prestasi PIC repair</h3>
@@ -2194,6 +2318,15 @@
             <label>Slogan (jalur atas)<input name="slogan" value="${esc(settings.slogan)}"></label>
           </div>
           <div class="grid2">
+            <label>💰 Sasaran komisen sebulan (RM)<input name="commissionTarget" type="number" min="0" step="1" value="${esc(settings.commissionTarget)}"></label>
+            <label>Kadar komisen (%)<input name="commissionRate" type="number" min="0" max="100" step="0.1" value="${esc(settings.commissionRate)}"></label>
+            <label>Cara kira komisen<select name="commissionMode">
+              <option value="lebihan" ${settings.commissionMode !== 'semua' ? 'selected' : ''}>Atas jualan melebihi sasaran sahaja</option>
+              <option value="semua" ${settings.commissionMode === 'semua' ? 'selected' : ''}>Atas semua jualan (bila sasaran dicapai)</option>
+            </select></label>
+            <label class="check"><input type="checkbox" name="showTargetToTech" ${settings.showTargetToTech !== false ? 'checked' : ''}><span>Tunjuk progres sasaran kepada technician (Kerja saya)</span></label>
+          </div>
+          <div class="grid2">
             <label>⭐ Link Google Review<input name="reviewLink" type="url" value="${esc(settings.reviewLink)}" placeholder="https://g.page/r/…/review"></label>
             <label>Mesej minta review ({kedai}, {nama}, {link})<textarea name="reviewMsg" rows="4">${esc(settings.reviewMsg)}</textarea></label>
           </div>
@@ -2281,6 +2414,10 @@
         slogan: fd.get('slogan').trim(),
         reviewLink: fd.get('reviewLink').trim(),
         reviewMsg: fd.get('reviewMsg').trim() || DEFAULT_SETTINGS.reviewMsg,
+        commissionTarget: num(fd.get('commissionTarget')) === '' ? 0 : num(fd.get('commissionTarget')),
+        commissionRate: num(fd.get('commissionRate')) === '' ? 0 : num(fd.get('commissionRate')),
+        commissionMode: fd.get('commissionMode') === 'semua' ? 'semua' : 'lebihan',
+        showTargetToTech: !!fd.get('showTargetToTech'),
       };
       try {
         await DB.saveSettings(next);
@@ -2459,7 +2596,7 @@
   /* ---------------- start ---------------- */
   /* ---------- semakan versi: pastikan semua telefon guna versi terbaru ----------
      Bila kemaskini app: naikkan APP_VERSION, version.json dan ?v= dalam index.html/resit.html */
-  const APP_VERSION = '16';
+  const APP_VERSION = '17';
 
   async function latestVersion() {
     try {
