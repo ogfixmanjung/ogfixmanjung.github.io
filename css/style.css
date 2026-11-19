@@ -492,3 +492,35 @@ code { background: #f1f1ec; border-radius: 4px; padding: 0 4px; font-size: .92em
 .target-bar span { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
 .target-bar.sm { height: 6px; width: 120px; display: inline-block; vertical-align: middle; margin: 0 6px 0 0; }
 .tbl tfoot td { border-top: 2px solid var(--line); border-bottom: 0; }
+
+/* ---------- senarai kerja: satu baris satu device (v19) ---------- */
+#list { display: block !important; }
+.jhead, .jrow { display: grid; grid-template-columns: 48px minmax(150px, 1.2fr) minmax(180px, 2fr) minmax(130px, 1.3fr) minmax(130px, 1.1fr) 100px 100px; gap: 12px; align-items: center; }
+.jhead { padding: 0 14px 8px; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); border-bottom: 1px solid var(--line); }
+.list-card .jrow.job { padding: 12px 14px; border: 0; border-bottom: 1px solid var(--line); border-left: 4px solid transparent; border-radius: 0; background: #fff; box-shadow: none; }
+.list-card .jrow.job:hover { background: #f7f8f5; border-left-color: var(--accent); }
+.jrow .c-q { font-weight: 800; font-size: 15px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.jrow .c-id.job-top { display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: 4px; }
+.jrow .c-id strong { font-size: 14px; }
+.jrow .job-dev { font-weight: 700; font-size: 15px; margin: 0; }
+.jrow .clamp1 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.jrow > div { min-width: 0; }
+.days-old { color: var(--danger); font-weight: 700; }
+@media (max-width: 899px) {
+  .jhead { display: none; }
+  .jrow {
+    grid-template-columns: 40px 1fr auto;
+    grid-template-areas: 'q id st' 'q dev dev' 'q cust cust' 'q days pic';
+    gap: 4px 10px;
+    align-items: start;
+  }
+  .list-card .jrow.job { padding: 12px 6px; }
+  .jrow .c-q { grid-area: q; font-size: 16px; padding-top: 2px; }
+  .jrow .c-id { grid-area: id; flex-direction: row !important; align-items: center !important; flex-wrap: wrap; }
+  .jrow .c-st { grid-area: st; }
+  .jrow .c-dev { grid-area: dev; }
+  .jrow .c-cust { grid-area: cust; font-size: 14px; }
+  .jrow .c-cust .small { display: inline; margin-left: 4px; }
+  .jrow .c-days { grid-area: days; }
+  .jrow .c-pic { grid-area: pic; text-align: right; }
+}
