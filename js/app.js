@@ -926,18 +926,44 @@
           </details>`
         : '';
 
-      $('#listCount').textContent = `${out.length} rekod ditemui · ${todayN} diterima hari ini`;
+      // Susunan: device dalam kedai ikut giliran sampai (#1 paling lama di atas);
+      // Telah diambil / Semua / Waranti: terbaru di atas.
+      const newestFirst = ['diambil', 'semua', 'waranti'].includes(listFilter.status);
+      const asc = (a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0);
+      out.sort((a, b) => (newestFirst ? -asc(a, b) : asc(a, b)));
+      const queue = {};
+      jobs
+        .filter(isActive)
+        .sort(asc)
+        .forEach((j, i) => (queue[j.id] = i + 1));
+
+      const daysTxt = (j) => {
+        if (j.status === 'diambil') return `<span class="muted">Diambil ${j.pickup ? fmtDate(j.pickup.at, false) : ''}</span>`;
+        const d = daysSince(j.createdAt);
+        return `<span class="${d >= 7 ? 'days-old' : ''}">${d === 0 ? 'Hari ini' : d + ' hari'}</span>`;
+      };
+
+      $('#listCount').textContent = `${out.length} rekod ditemui · ${todayN} diterima hari ini · ${
+        newestFirst ? 'terbaru di atas' : 'ikut giliran sampai (paling lama di atas)'
+      }`;
       $('#list').innerHTML = out.length
-        ? out
+        ? `<div class="jhead" aria-hidden="true"><div>#</div><div>No. resit</div><div>Device</div><div>Pelanggan</div><div>Status</div><div>${
+            newestFirst ? 'Tarikh' : 'Dalam kedai'
+          }</div><div>PIC</div></div>` +
+          out
             .map(
-              (j) => `<a class="job" href="#/job/${encodeURIComponent(j.id)}">
-              <div class="job-top"><strong>${esc(j.id)}</strong>${badge(j.status)}</div>
-              <div class="job-dev">${esc([j.device.brand, j.device.model].filter(Boolean).join(' '))}${j.pickupCode && j.status !== 'diambil' ? ` <span class="kod">🔑 ${esc(j.pickupCode)}</span>` : ''}${
-                j.status !== 'diambil' && (j.warrantyOf || ['kedai', 'pengeluar'].includes(j.intakeWarranty)) ? ` <span class="kod">🛡 ${j.warrantyOf ? 'Claim waranti' : esc(INTAKE_WARRANTY[j.intakeWarranty])}</span>` : ''
-              }${warrantyBadge(j)}</div>
-              <div class="muted small">${esc(j.customer.name)} · ${esc(j.customer.phone)}${j.pic ? ` · <span class="pic">👤 ${esc(j.pic)}</span>` : ''}</div>
-              <div class="small job-prob">${esc(j.problem)}</div>
-              <div class="muted small">Diterima ${fmtDate(j.createdAt)}${j.eta ? ' · Anggaran siap ' + fmtDate(j.eta, false) : ''}</div>
+              (j) => `<a class="job jrow" href="#/job/${encodeURIComponent(j.id)}">
+              <div class="c-q">${queue[j.id] ? '#' + queue[j.id] : ''}</div>
+              <div class="c-id job-top"><strong>${esc(j.id)}</strong>${j.pickupCode && j.status !== 'diambil' ? ` <span class="kod">🔑 ${esc(j.pickupCode)}</span>` : ''}</div>
+              <div class="c-dev"><span class="job-dev">${esc([j.device.brand, j.device.model].filter(Boolean).join(' '))}</span>${
+                j.status !== 'diambil' && (j.warrantyOf || ['kedai', 'pengeluar'].includes(j.intakeWarranty))
+                  ? ` <span class="kod">🛡 ${j.warrantyOf ? 'Claim waranti' : esc(INTAKE_WARRANTY[j.intakeWarranty])}</span>`
+                  : ''
+              }${warrantyBadge(j)}<div class="small muted clamp1">${esc(j.problem)}</div></div>
+              <div class="c-cust">${esc(j.customer.name)}<div class="small muted">${esc(j.customer.phone)}</div></div>
+              <div class="c-st">${badge(j.status)}</div>
+              <div class="c-days small">${daysTxt(j)}</div>
+              <div class="c-pic small">${j.pic ? `<span class="pic">👤 ${esc(j.pic)}</span>` : '<span class="muted">–</span>'}</div>
             </a>`
             )
             .join('')
@@ -1147,7 +1173,7 @@
         });
     };
     const drawHistory = () => {
-      if (job) return;
+      if (job || !$('#custHistory')) return; // borang sudah ditutup (cth selepas simpan)
       if (!histJobs.length) {
         $('#custHistory').innerHTML = '';
         return;
@@ -1177,6 +1203,7 @@
           histJobs = [];
         }
         const nameEl = $('#form [name=name]');
+        if (!nameEl) return;
         if (histJobs.length && !nameEl.value.trim()) nameEl.value = histJobs[0].customer.name;
         drawHistory();
       };
@@ -2614,7 +2641,7 @@
   /* ---------------- start ---------------- */
   /* ---------- semakan versi: pastikan semua telefon guna versi terbaru ----------
      Bila kemaskini app: naikkan APP_VERSION, version.json dan ?v= dalam index.html/resit.html */
-  const APP_VERSION = '18';
+  const APP_VERSION = '19';
 
   async function latestVersion() {
     try {
