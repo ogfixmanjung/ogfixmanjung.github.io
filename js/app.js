@@ -632,6 +632,7 @@
   /* ---------------- router ---------------- */
   async function route() {
     if (window.ReceiptExport) ReceiptExport.close();
+    if (window.PhotoViewer) PhotoViewer.close();
     if (!ready) return;
     const hash = location.hash.replace(/^#\/?/, '');
     const [path, query] = hash.split('?');
@@ -2641,7 +2642,7 @@
   /* ---------------- start ---------------- */
   /* ---------- semakan versi: pastikan semua telefon guna versi terbaru ----------
      Bila kemaskini app: naikkan APP_VERSION, version.json dan ?v= dalam index.html/resit.html */
-  const APP_VERSION = '19';
+  const APP_VERSION = '20';
 
   async function latestVersion() {
     try {
