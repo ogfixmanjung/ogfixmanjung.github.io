@@ -206,9 +206,7 @@
       <section><h3>Device</h3>
         ${row('Jenama / Model', esc([d.brand, d.model].filter(Boolean).join(' ')))}
         ${row('Warna', esc(d.color))}
-        ${row('IMEI / Serial', esc(d.imei))}
         ${!isPublic ? row(isPattern(d.passcode) ? 'Pattern' : 'Passcode / PIN', passcodeHtml(d.passcode)) : ''}
-        ${!isPublic && job.location && job.status !== 'diambil' ? row('📍 Lokasi simpanan', esc(job.location)) : ''}
       </section>
 
       <section><h3>Aksesori Diterima</h3>${list(
@@ -291,7 +289,6 @@
           brand: job.device.brand,
           model: job.device.model,
           color: job.device.color,
-          imei: job.device.imei,
         },
         accessories: job.accessories,
         accessoriesOther: job.accessoriesOther,
