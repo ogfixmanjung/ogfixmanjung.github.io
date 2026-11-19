@@ -14,6 +14,8 @@
     'Kamera retak',
     'Butang rosak',
     'Pernah terkena air',
+    'Terkena air laut',
+    'Phone restart-restart',
     'Pernah dibuka / dibaiki',
     'Tidak boleh hidup',
     'Keadaan baik',
@@ -104,7 +106,6 @@
     ['Jenama', (j) => j.device && j.device.brand],
     ['Model', (j) => j.device && j.device.model],
     ['Warna', (j) => j.device && j.device.color],
-    ['IMEI', (j) => j.device && j.device.imei],
     ['Passcode', (j) => j.device && j.device.passcode, 'secret'],
     ['Aksesori', (j) => (j.accessories || []).join(', ')],
     ['Aksesori lain', (j) => j.accessoriesOther],
@@ -115,7 +116,6 @@
     ['Deposit', (j) => j.deposit, 'money'],
     ['Anggaran siap', (j) => j.eta],
     ['Staff terima', (j) => j.staff],
-    ['Lokasi simpanan', (j) => j.location],
     ['PIC repair', (j) => j.pic],
     ['Status waranti semasa terima', (j) => (j.intakeWarranty ? INTAKE_WARRANTY[j.intakeWarranty] : '')],
     ['Nota', (j) => j.notes],
@@ -349,6 +349,18 @@
     return `<div class="card review-card"><h3>⭐ Minta review Google</h3>
       <p class="small muted">${job.reviewAsked ? 'Sudah diminta ' + fmtDate(job.reviewAsked.at) : 'Belum diminta'}</p>
       <button class="btn block review-btn" data-review="${esc(job.id)}">📲 ${job.reviewAsked ? 'Minta sekali lagi' : 'Minta review via WhatsApp'}</button></div>`;
+  }
+
+  /* ---------- jenama device ---------- */
+  const BRANDS = ['Apple', 'Samsung', 'Xiaomi', 'Redmi', 'Poco', 'Oppo', 'Vivo', 'Realme', 'Huawei', 'Honor', 'Infinix', 'Tecno', 'OnePlus', 'Google', 'Nokia', 'Motorola'];
+
+  function brandOptions(cur) {
+    const other = cur && !BRANDS.includes(cur);
+    return (
+      `<option value="">— Pilih jenama —</option>` +
+      BRANDS.map((b) => `<option ${b === cur ? 'selected' : ''}>${b}</option>`).join('') +
+      `<option value="__other" ${other ? 'selected' : ''}>Lain-lain (taip)…</option>`
+    );
   }
 
   /* ---------- PIC repair (technician) ---------- */
@@ -819,7 +831,7 @@
       <section class="card list-card">
         <div class="list-head"><div><h2>Senarai kerja</h2><div class="small muted" id="listCount"></div></div></div>
         <div class="toolbar">
-          <input type="search" id="q" placeholder="Cari telefon, nama, no. resit, kod, model atau IMEI…" value="${esc(listFilter.q)}">
+          <input type="search" id="q" placeholder="Cari telefon, nama, no. resit, kod atau model…" value="${esc(listFilter.q)}">
           <select id="f" aria-label="Status"></select>
           <select id="fp" aria-label="PIC repair"></select>
         </div>
@@ -885,7 +897,7 @@
         if (listFilter.pic === '__none' && j.pic) return false;
         if (listFilter.pic && listFilter.pic !== '__none' && j.pic !== listFilter.pic) return false;
         if (!q) return true;
-        const hay = [j.id, j.customer.name, j.customer.phone, j.device.brand, j.device.model, j.device.imei, j.problem, j.location, j.pic, j.status !== 'diambil' ? j.pickupCode : '']
+        const hay = [j.id, j.customer.name, j.customer.phone, j.device.brand, j.device.model, j.problem, j.pic, j.status !== 'diambil' ? j.pickupCode : '']
           .join(' ')
           .toLowerCase();
         return hay.includes(q) || (qDigits.length >= 3 && hay.replace(/\D/g, '').includes(qDigits));
@@ -920,7 +932,7 @@
             .map(
               (j) => `<a class="job" href="#/job/${encodeURIComponent(j.id)}">
               <div class="job-top"><strong>${esc(j.id)}</strong>${badge(j.status)}</div>
-              <div class="job-dev">${esc([j.device.brand, j.device.model].filter(Boolean).join(' '))}${j.pickupCode && j.status !== 'diambil' ? ` <span class="kod">🔑 ${esc(j.pickupCode)}</span>` : ''}${j.location && j.status !== 'diambil' ? ` <span class="loc">📍 ${esc(j.location)}</span>` : ''}${
+              <div class="job-dev">${esc([j.device.brand, j.device.model].filter(Boolean).join(' '))}${j.pickupCode && j.status !== 'diambil' ? ` <span class="kod">🔑 ${esc(j.pickupCode)}</span>` : ''}${
                 j.status !== 'diambil' && (j.warrantyOf || ['kedai', 'pengeluar'].includes(j.intakeWarranty)) ? ` <span class="kod">🛡 ${j.warrantyOf ? 'Claim waranti' : esc(INTAKE_WARRANTY[j.intakeWarranty])}</span>` : ''
               }${warrantyBadge(j)}</div>
               <div class="muted small">${esc(j.customer.name)} · ${esc(j.customer.phone)}${j.pic ? ` · <span class="pic">👤 ${esc(j.pic)}</span>` : ''}</div>
@@ -1013,12 +1025,12 @@
 
         <fieldset><legend>Maklumat Device</legend>
           <div class="grid2">
-            <label>Jenama *<input name="brand" required list="brands" value="${esc(j.device.brand)}" placeholder="cth: Apple, Samsung"></label>
+            <label>Jenama *<select name="brandSel">${brandOptions(j.device.brand)}</select>
+              <input name="brandOther" placeholder="Taip jenama" value="${esc(BRANDS.includes(j.device.brand) ? '' : j.device.brand || '')}" ${j.device.brand && !BRANDS.includes(j.device.brand) ? '' : 'hidden'} class="w-custom">
+            </label>
             <label>Model *<input name="model" required value="${esc(j.device.model)}" placeholder="cth: iPhone 13 Pro"></label>
             <label>Warna<input name="color" value="${esc(j.device.color)}"></label>
-            <label>IMEI / Serial No.<input name="imei" value="${esc(j.device.imei)}" inputmode="numeric" placeholder="Dail *#06#"></label>
           </div>
-          <label>📍 Lokasi simpanan device<input name="location" value="${esc(j.location)}" placeholder="cth: Rak A2, Laci 3, Tray 15" autocomplete="off"></label>
           <div class="pc-block">
             <div class="sig-label">Kunci skrin device (untuk ujian)</div>
             <div class="seg">
@@ -1033,9 +1045,6 @@
             </div>
             <p class="small muted">Tidak dipapar pada resit pelanggan. Dipadam automatik selepas device diambil.</p>
           </div>
-          <datalist id="brands">${['Apple', 'Samsung', 'Xiaomi', 'Redmi', 'Oppo', 'Vivo', 'Realme', 'Huawei', 'Honor', 'Infinix', 'Poco', 'OnePlus', 'Google', 'Nokia']
-            .map((b) => `<option value="${b}">`)
-            .join('')}</datalist>
         </fieldset>
 
         <fieldset><legend>Aksesori Diterima Bersama</legend>
@@ -1092,11 +1101,31 @@
       </form>`;
 
     // Kunci skrin: Tiada / PIN / Pattern
+    // ---- Jenama: senarai pilihan + Lain-lain ----
+    const brandSel = $('#form [name=brandSel]');
+    const brandOther = $('#form [name=brandOther]');
+    brandSel.addEventListener('change', () => {
+      brandOther.hidden = brandSel.value !== '__other';
+      if (!brandOther.hidden) brandOther.focus();
+    });
+    function setBrand(v) {
+      if (!v) return;
+      if (BRANDS.includes(v)) {
+        brandSel.value = v;
+        brandOther.hidden = true;
+      } else {
+        brandSel.value = '__other';
+        brandOther.value = v;
+        brandOther.hidden = false;
+      }
+    }
+
     // ---- Pelanggan lama & claim waranti (borang baru sahaja) ----
     let warrantyOf = j.warrantyOf || '';
     let histJobs = [];
     const fillDevice = (src) => {
-      ['brand', 'model', 'color', 'imei'].forEach((k) => {
+      setBrand(src.device.brand);
+      ['model', 'color'].forEach((k) => {
         const el = $(`#form [name=${k}]`);
         if (el && src.device[k]) el.value = src.device[k];
       });
@@ -1232,7 +1261,8 @@
       const errors = [];
       if (!fd.get('name').trim()) errors.push('Nama pelanggan');
       if (fd.get('phone').replace(/\D/g, '').length < 9) errors.push('No. telefon yang sah');
-      if (!fd.get('brand').trim()) errors.push('Jenama');
+      const brandVal = fd.get('brandSel') === '__other' ? (fd.get('brandOther') || '').trim() : fd.get('brandSel') || '';
+      if (!brandVal) errors.push('Jenama');
       if (!fd.get('model').trim()) errors.push('Model');
       if (!fd.get('problem').trim()) errors.push('Masalah dilaporkan');
       const pcType = fd.get('pcType') || 'none';
@@ -1260,10 +1290,10 @@
       const data = Object.assign({}, job || {}, {
         customer: { name: fd.get('name').trim(), phone: fd.get('phone').trim() },
         device: {
-          brand: fd.get('brand').trim(),
+          brand: brandVal,
           model: fd.get('model').trim(),
           color: fd.get('color').trim(),
-          imei: fd.get('imei').trim(),
+          imei: (job && job.device && job.device.imei) || '',
           passcode: pcType === 'pin' ? fd.get('passcode').trim() : pcType === 'pattern' ? 'P:' + patSeq.join('-') : '',
         },
         accessories: fd.getAll('acc'),
@@ -1276,7 +1306,6 @@
         eta: fd.get('eta'),
         staff: fd.get('staff').trim(),
         pic: fd.get('pic') || '',
-        location: fd.get('location').trim(),
         intakeWarranty: fd.get('intakeWarranty') || (job && job.intakeWarranty) || '',
         notes: fd.get('notes').trim(),
         updatedAt: now,
@@ -1362,7 +1391,7 @@
         params && params.get('baru')
           ? `<div class="notice">✅ Device telah direkodkan.${
               job.pickupCode
-                ? `<div class="notice-code">✍️ Tulis <strong>${esc(job.pickupCode)}</strong> pada sticker / kertas dan lekat pada device${job.location ? ` (simpan di 📍 ${esc(job.location)})` : ''}.</div>`
+                ? `<div class="notice-code">✍️ Tulis <strong>${esc(job.pickupCode)}</strong> pada sticker / kertas dan lekat pada device.</div>`
                 : ''
             }Kemudian hantar resit digital kepada pelanggan melalui WhatsApp.</div>`
           : ''
@@ -1391,10 +1420,7 @@
                 .map((s) => `<option value="${s.key}" ${s.key === job.status ? 'selected' : ''}>${esc(s.label)}</option>`)
                 .join('')}</select>
               <textarea name="note" rows="2" placeholder="Nota (cth: Part skrin dah order, ETA 3 hari)"></textarea>
-              <div class="grid2 tight">
-                <label class="small">📍 Lokasi simpanan<input name="location" value="${esc(job.location || '')}" placeholder="cth: Rak A2"></label>
-                <label class="small">👤 PIC repair<select name="pic">${picOptions(job.pic || '')}</select></label>
-              </div>
+              <label class="small">👤 PIC repair<select name="pic">${picOptions(job.pic || '')}</select></label>
               <label class="check"><input type="checkbox" name="notify" checked><span>Maklumkan pelanggan via WhatsApp</span></label>
               <button class="btn primary" type="submit">Kemaskini</button>
             </form>
@@ -1567,11 +1593,9 @@
         const fd = new FormData(stForm);
         const status = fd.get('status');
         const note = fd.get('note').trim();
-        const location = (fd.get('location') || '').trim();
-        const locChanged = location !== (job.location || '');
         const pic = fd.get('pic') || '';
         const picChanged = pic !== (job.pic || '');
-        if (status === job.status && !note && !locChanged && !picChanged) {
+        if (status === job.status && !note && !picChanged) {
           toast('Tiada perubahan');
           return;
         }
@@ -1579,10 +1603,6 @@
         const changes = [];
         if (status !== job.status) changes.push({ f: 'Status', from: R.statusInfo(job.status).label, to: R.statusInfo(status).label });
         if (note) changes.push({ f: 'Nota', from: '', to: note });
-        if (locChanged) {
-          changes.push({ f: 'Lokasi simpanan', from: job.location || '', to: location || '(kosong)' });
-          job.location = location;
-        }
         if (picChanged) {
           changes.push({ f: 'PIC repair', from: job.pic || '', to: pic || '(tiada)' });
           job.pic = pic;
@@ -1628,7 +1648,6 @@
       <form id="pkForm" class="card form" novalidate>
         <h2>Serahan Semula – ${esc(job.id)}</h2>
         <p class="muted">${esc(job.customer.name)} · ${esc([job.device.brand, job.device.model].join(' '))}</p>
-        ${job.location ? `<div class="loc-big">📍 Ambil device di: <strong>${esc(job.location)}</strong></div>` : ''}
         <div class="notice small">Semak resit / mesej WhatsApp pelanggan dan pastikan no. resit <strong>${esc(job.id)}</strong> sepadan sebelum serahkan device.</div>
         <div class="grid3">
           <label>Harga akhir (RM)<input name="finalPrice" type="number" step="0.01" min="0" inputmode="decimal" value="${esc(final)}"></label>
@@ -1809,7 +1828,7 @@
       const lateDays = late ? Math.max(1, Math.floor((today - new Date(j.eta + 'T00:00:00')) / 864e5)) : 0;
       return `<div class="mjob ${late ? 'late' : ''}">
         <div class="job-top"><a href="#/job/${encodeURIComponent(j.id)}"><strong>${esc(j.id)}</strong></a>${badge(j.status)}</div>
-        <div class="job-dev">${esc([j.device.brand, j.device.model].filter(Boolean).join(' '))}${j.location ? ` <span class="loc">📍 ${esc(j.location)}</span>` : ''}${j.warrantyOf ? ' <span class="kod">🛡 Waranti</span>' : ''}</div>
+        <div class="job-dev">${esc([j.device.brand, j.device.model].filter(Boolean).join(' '))}${j.warrantyOf ? ' <span class="kod">🛡 Waranti</span>' : ''}</div>
         <div class="small">${esc(j.problem)}</div>
         <div class="small muted">${days} hari dalam kedai${j.eta ? ` · Anggaran siap ${fmtDate(j.eta, false)}` : ''}${late ? ` · <strong class="late-txt">Lewat ${lateDays} hari</strong>` : ''}</div>
         <div class="mjob-acts">${actions}</div>
@@ -2506,7 +2525,6 @@
         ['Telefon', (j) => j.customer.phone],
         ['Jenama', (j) => j.device.brand],
         ['Model', (j) => j.device.model],
-        ['IMEI', (j) => j.device.imei],
         ['Masalah', (j) => j.problem],
         ['Anggaran', (j) => j.estimate],
         ['Deposit', (j) => j.deposit],
@@ -2596,7 +2614,7 @@
   /* ---------------- start ---------------- */
   /* ---------- semakan versi: pastikan semua telefon guna versi terbaru ----------
      Bila kemaskini app: naikkan APP_VERSION, version.json dan ?v= dalam index.html/resit.html */
-  const APP_VERSION = '17';
+  const APP_VERSION = '18';
 
   async function latestVersion() {
     try {
