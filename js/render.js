@@ -145,7 +145,7 @@
     const photos =
       !isPublic && job.photos && job.photos.length
         ? `<section><h3>Gambar Device</h3><div class="photos">${job.photos
-            .map((p, i) => `<a href="${p}" target="_blank" rel="noopener"><img src="${p}" alt="Gambar ${i + 1}"></a>`)
+            .map((p, i) => `<a href="#" class="ph-open" data-i="${i}" title="Tekan untuk lihat besar"><img src="${p}" alt="Gambar ${i + 1}"></a>`)
             .join('')}</div></section>`
         : '';
 
