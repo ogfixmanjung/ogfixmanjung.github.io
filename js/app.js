@@ -32,6 +32,7 @@
     pics: ['Acap', 'Azim', 'Hakim', 'Haziq', 'Iqbal'],
     slogan: 'Your device lifesaver',
     reviewLink: '',
+    greeting: 'Assalamualaikum / Salam Sejahtera',
     commissionTarget: 50000,
     commissionRate: 10,
     commissionMode: 'lebihan',
@@ -305,17 +306,27 @@
     return { days, label: days ? (o ? o.label : `${days} hari`) : '' };
   }
 
+  /* Sapaan & penutup mesej WhatsApp kepada pelanggan */
+  function greet(name) {
+    return `${(settings.greeting || DEFAULT_SETTINGS.greeting).trim()} ${name},`;
+  }
+
+  function signoff() {
+    // Bukan '- Nama' kerana WhatsApp menukar '- ' di awal baris menjadi titik senarai
+    return `Terima kasih,\n*${settings.name}*`;
+  }
+
   /* ---------- tukar status pantas & mesej WhatsApp ---------- */
   function statusWaMsg(job, status, note) {
     const dev = [job.device.brand, job.device.model].filter(Boolean).join(' ');
     return (
-      `Salam ${job.customer.name},\n\nKemaskini untuk device anda (${dev}), No. Resit *${job.id}*:\n\n` +
+      `${greet(job.customer.name)}\n\nKemaskini untuk device anda (${dev}), No. Resit *${job.id}*:\n\n` +
       `Status: *${R.statusInfo(status).label}*\n` +
       (note ? `Nota: ${note}\n` : '') +
       (status === 'siap' || status === 'batal'
         ? `\nDevice anda sedia untuk diambil. Sila sebut / tunjuk Kod Ambil semasa mengambil.\n${codeLine(job)}`
         : '') +
-      `\nResit & status terkini:\n${customerLink(job, settings)}\n\n- ${settings.name}`
+      `\nResit & status terkini:\n${customerLink(job, settings)}\n\n${signoff()}`
     );
   }
 
@@ -330,10 +341,11 @@
 
   /* ---------- minta review Google ---------- */
   async function askReview(job) {
-    const msg = String(settings.reviewMsg || DEFAULT_SETTINGS.reviewMsg)
+    let msg = String(settings.reviewMsg || DEFAULT_SETTINGS.reviewMsg)
       .replace(/\{kedai\}/g, settings.name)
       .replace(/\{nama\}/g, job.customer.name)
       .replace(/\{link\}/g, settings.reviewLink);
+    if (!/^\s*(assalamualaikum|salam)/i.test(msg)) msg = `${greet(job.customer.name)}\n\n${msg}`;
     window.open(`https://wa.me/${waPhone(job.customer.phone)}?text=${encodeURIComponent(msg)}`, '_blank', 'noopener');
     job.reviewAsked = { at: new Date().toISOString(), by: me() || actor() };
     job.updatedAt = job.reviewAsked.at;
@@ -424,12 +436,12 @@
     const abandon = Number(settings.abandonDays || 30);
     const bal = job.estimate !== '' && job.estimate != null ? Number(job.estimate) - Number(job.deposit || 0) : 0;
     const msg =
-      `Salam ${job.customer.name},\n\nPeringatan mesra dari ${settings.name}: device anda (${dev}), No. Resit *${job.id}* ` +
+      `${greet(job.customer.name)}\n\nPeringatan mesra dari ${settings.name}: device anda (${dev}), No. Resit *${job.id}* ` +
       (job.status === 'batal' ? 'sedia untuk diambil semula' : 'telah siap dibaiki') +
       ` sejak ${fmtDate(readySince(job), false)} (${days} hari).\n\nSila ambil device anda di kedai pada waktu operasi.` +
       (bal > 0 ? ` Anggaran baki bayaran: ${money(bal)}.` : '') +
       `\n\n${codeLine(job)}\nResit digital:\n${customerLink(job, settings)}\n\n` +
-      `Mengikut terma kami, device yang tidak dituntut dalam tempoh ${abandon} hari selepas dimaklumkan siap bukan lagi tanggungjawab kedai.\n\n- ${settings.name}`;
+      `Mengikut terma kami, device yang tidak dituntut dalam tempoh ${abandon} hari selepas dimaklumkan siap bukan lagi tanggungjawab kedai.\n\n${signoff()}`;
     window.open(`https://wa.me/${waPhone(job.customer.phone)}?text=${encodeURIComponent(msg)}`, '_blank', 'noopener');
     const n = (job.reminders || []).length + 1;
     job.reminders = (job.reminders || []).concat([{ at: new Date().toISOString(), by: me() || actor() }]);
@@ -1575,7 +1587,7 @@
 
     $('#btnWa').addEventListener('click', () => {
       sendWa(
-        `Salam ${job.customer.name},\n\nTerima kasih kerana memilih ${settings.name}. Device anda telah kami terima.\n\n` +
+        `${greet(job.customer.name)}\n\nTerima kasih kerana memilih ${settings.name}. Device anda telah kami terima.\n\n` +
           `No. Resit: *${job.id}*\nDevice: ${dev}\nMasalah: ${job.problem}\n` +
           (job.estimate !== '' && job.estimate != null ? `Anggaran: ${money(job.estimate)}\n` : '') +
           (job.deposit ? `Deposit: ${money(job.deposit)}\n` : '') +
@@ -1650,13 +1662,13 @@
         }
         if (statusOrNote && fd.get('notify')) {
           const msg =
-            `Salam ${job.customer.name},\n\nKemaskini untuk device anda (${dev}), No. Resit *${job.id}*:\n\n` +
+            `${greet(job.customer.name)}\n\nKemaskini untuk device anda (${dev}), No. Resit *${job.id}*:\n\n` +
             `Status: *${R.statusInfo(status).label}*\n` +
             (note ? `Nota: ${note}\n` : '') +
             (status === 'siap' || status === 'batal'
               ? `\nDevice anda sedia untuk diambil. Sila sebut / tunjuk Kod Ambil semasa mengambil.\n${codeLine(job)}`
               : '') +
-            `\nResit & status terkini:\n${customerLink(job, settings)}\n\n- ${settings.name}`;
+            `\nResit & status terkini:\n${customerLink(job, settings)}\n\n${signoff()}`;
           sendWa(msg);
         }
         savedToast(result, 'Status dikemaskini');
@@ -2374,6 +2386,7 @@
             <label class="check"><input type="checkbox" name="showTargetToTech" ${settings.showTargetToTech !== false ? 'checked' : ''}><span>Tunjuk progres sasaran kepada technician (Kerja saya)</span></label>
           </div>
           <div class="grid2">
+            <label>👋 Sapaan mesej WhatsApp<input name="greeting" value="${esc(settings.greeting)}" placeholder="Assalamualaikum / Salam Sejahtera"></label>
             <label>⭐ Link Google Review<input name="reviewLink" type="url" value="${esc(settings.reviewLink)}" placeholder="https://g.page/r/…/review"></label>
             <label>Mesej minta review ({kedai}, {nama}, {link})<textarea name="reviewMsg" rows="4">${esc(settings.reviewMsg)}</textarea></label>
           </div>
@@ -2460,6 +2473,7 @@
         pics: fd.get('pics').split('\n').map((x) => x.trim()).filter(Boolean),
         slogan: fd.get('slogan').trim(),
         reviewLink: fd.get('reviewLink').trim(),
+        greeting: fd.get('greeting').trim() || DEFAULT_SETTINGS.greeting,
         reviewMsg: fd.get('reviewMsg').trim() || DEFAULT_SETTINGS.reviewMsg,
         commissionTarget: num(fd.get('commissionTarget')) === '' ? 0 : num(fd.get('commissionTarget')),
         commissionRate: num(fd.get('commissionRate')) === '' ? 0 : num(fd.get('commissionRate')),
