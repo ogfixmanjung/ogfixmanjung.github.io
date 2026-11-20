@@ -33,6 +33,8 @@
     slogan: 'Your device lifesaver',
     reviewLink: '',
     greeting: 'Assalamualaikum / Salam Sejahtera',
+    siapMsg:
+      '{salam} {nama},\n\n{device} anda sudah SIAP dibaiki dan boleh diambil di kedai 😊\n\nNo. Resit: *{resit}*\nKod Ambil: *{kod}*\nBaki bayaran: {harga}\n\nResit digital: {link}\n\nTerima kasih,\n*{kedai}*',
     commissionTarget: 50000,
     commissionRate: 10,
     commissionMode: 'lebihan',
@@ -317,7 +319,41 @@
   }
 
   /* ---------- tukar status pantas & mesej WhatsApp ---------- */
+  /* Mesej 'Siap' ikut templat di Tetapan. Baris yang nilainya kosong
+     (cth tiada baki bayaran / tiada kod) dibuang secara automatik. */
+  function siapMsg(job, note) {
+    const dev = [job.device.brand, job.device.model].filter(Boolean).join(' ');
+    const est = job.estimate === '' || job.estimate == null ? null : Number(job.estimate);
+    const bal = est == null ? 0 : est - Number(job.deposit || 0);
+    const vals = {
+      salam: (settings.greeting || DEFAULT_SETTINGS.greeting).trim(),
+      nama: job.customer.name,
+      device: dev,
+      resit: job.id,
+      kod: job.pickupCode || '',
+      harga: bal > 0 ? money(bal) : '',
+      link: customerLink(job, settings),
+      kedai: settings.name,
+      nota: note || '',
+    };
+    const tpl = String(settings.siapMsg || DEFAULT_SETTINGS.siapMsg);
+    let lines = tpl.split('\n').filter((line) => {
+      const keys = (line.match(/\{(\w+)\}/g) || []).map((k) => k.slice(1, -1)).filter((k) => k in vals);
+      return !keys.length || keys.some((k) => vals[k] !== '');
+    });
+    let msg = lines.join('\n').replace(/\{(\w+)\}/g, (m, k) => (k in vals ? vals[k] : m));
+    msg = msg.replace(/\n{3,}/g, '\n\n');
+    if (note && !tpl.includes('{nota}')) {
+      // Nota staff diletak selepas ayat utama (perenggan kedua, selepas sapaan)
+      const first = msg.indexOf('\n\n');
+      const i = first >= 0 ? msg.indexOf('\n\n', first + 2) : -1;
+      msg = i >= 0 ? msg.slice(0, i) + `\n\nNota: ${note}` + msg.slice(i) : msg + `\n\nNota: ${note}`;
+    }
+    return msg;
+  }
+
   function statusWaMsg(job, status, note) {
+    if (status === 'siap') return siapMsg(job, note);
     const dev = [job.device.brand, job.device.model].filter(Boolean).join(' ');
     return (
       `${greet(job.customer.name)}\n\nKemaskini untuk device anda (${dev}), No. Resit *${job.id}*:\n\n` +
@@ -1661,15 +1697,7 @@
           return;
         }
         if (statusOrNote && fd.get('notify')) {
-          const msg =
-            `${greet(job.customer.name)}\n\nKemaskini untuk device anda (${dev}), No. Resit *${job.id}*:\n\n` +
-            `Status: *${R.statusInfo(status).label}*\n` +
-            (note ? `Nota: ${note}\n` : '') +
-            (status === 'siap' || status === 'batal'
-              ? `\nDevice anda sedia untuk diambil. Sila sebut / tunjuk Kod Ambil semasa mengambil.\n${codeLine(job)}`
-              : '') +
-            `\nResit & status terkini:\n${customerLink(job, settings)}\n\n${signoff()}`;
-          sendWa(msg);
+          sendWa(statusWaMsg(job, status, note));
         }
         savedToast(result, 'Status dikemaskini');
         route();
@@ -2387,6 +2415,13 @@
           </div>
           <div class="grid2">
             <label>👋 Sapaan mesej WhatsApp<input name="greeting" value="${esc(settings.greeting)}" placeholder="Assalamualaikum / Salam Sejahtera"></label>
+          </div>
+          <label>✅ Templat mesej Siap (dihantar bila status ditukar ke Siap)
+            <textarea name="siapMsg" rows="11">${esc(settings.siapMsg)}</textarea>
+          </label>
+          <p class="small muted" style="margin-top:-6px">Boleh guna: <code>{salam}</code> <code>{nama}</code> <code>{device}</code> <code>{resit}</code> <code>{kod}</code> <code>{harga}</code> <code>{link}</code> <code>{kedai}</code> <code>{nota}</code>. Baris yang kosong (cth tiada baki bayaran) dibuang secara automatik.
+            <button type="button" class="linkbtn" id="siapReset">Guna semula ayat asal</button></p>
+          <div class="grid2">
             <label>⭐ Link Google Review<input name="reviewLink" type="url" value="${esc(settings.reviewLink)}" placeholder="https://g.page/r/…/review"></label>
             <label>Mesej minta review ({kedai}, {nama}, {link})<textarea name="reviewMsg" rows="4">${esc(settings.reviewMsg)}</textarea></label>
           </div>
@@ -2456,6 +2491,12 @@
       });
     }
 
+    if ($('#siapReset'))
+      $('#siapReset').addEventListener('click', () => {
+        $('#setForm [name=siapMsg]').value = DEFAULT_SETTINGS.siapMsg;
+        toast('Ayat asal dimasukkan – tekan Simpan Tetapan');
+      });
+
     $('#setForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       if (!editable) return;
@@ -2474,6 +2515,7 @@
         slogan: fd.get('slogan').trim(),
         reviewLink: fd.get('reviewLink').trim(),
         greeting: fd.get('greeting').trim() || DEFAULT_SETTINGS.greeting,
+        siapMsg: fd.get('siapMsg').trim() || DEFAULT_SETTINGS.siapMsg,
         reviewMsg: fd.get('reviewMsg').trim() || DEFAULT_SETTINGS.reviewMsg,
         commissionTarget: num(fd.get('commissionTarget')) === '' ? 0 : num(fd.get('commissionTarget')),
         commissionRate: num(fd.get('commissionRate')) === '' ? 0 : num(fd.get('commissionRate')),
@@ -2656,7 +2698,7 @@
   /* ---------------- start ---------------- */
   /* ---------- semakan versi: pastikan semua telefon guna versi terbaru ----------
      Bila kemaskini app: naikkan APP_VERSION, version.json dan ?v= dalam index.html/resit.html */
-  const APP_VERSION = '20';
+  const APP_VERSION = '21';
 
   async function latestVersion() {
     try {
