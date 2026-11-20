@@ -187,7 +187,9 @@
   }
 
   function warrantyUntil(job) {
-    if (!job.pickup || !job.pickup.warrantyDays) return null;
+    if (!job.pickup) return null;
+    if (job.pickup.warrantyEnd) return new Date(job.pickup.warrantyEnd);
+    if (!job.pickup.warrantyDays) return null;
     return new Date(new Date(job.pickup.at).getTime() + Number(job.pickup.warrantyDays) * 864e5);
   }
 
@@ -275,12 +277,12 @@
   }
 
   /* Kawalan pilih waranti: select + (Lain-lain) input hari */
-  function warrantyField(name, days) {
+  function warrantyField(name, days, cont) {
     const opts = warrantyOpts();
-    const d = days === '' || days == null ? null : Number(days);
+    const d = cont || days === '' || days == null ? null : Number(days);
     const match = d == null ? null : opts.find((o) => o.days === d);
     const custom = d != null && !match;
-    return `<select name="${name}Sel" class="w-sel">${opts
+    return `<select name="${name}Sel" class="w-sel">${cont ? `<option value="cont" selected>${esc(cont.label)}</option>` : ''}${opts
       .map((o) => `<option value="${o.days}" ${match && match.days === o.days ? 'selected' : ''}>${esc(o.label)}</option>`)
       .join('')}<option value="custom" ${custom ? 'selected' : ''}>Lain-lain (taip hari)…</option></select>
       <input name="${name}Custom" class="w-custom" type="number" min="0" step="1" inputmode="numeric" placeholder="Bilangan hari" value="${custom ? esc(d) : ''}" ${custom ? '' : 'hidden'}>`;
@@ -296,8 +298,9 @@
   }
 
   /* Baca nilai: { days, label } atau null jika 'Lain-lain' kosong */
-  function readWarranty(fd, name) {
+  function readWarranty(fd, name, cont) {
     const v = fd.get(name + 'Sel');
+    if (v === 'cont' && cont) return { days: cont.days, label: 'Sambung waranti asal', end: cont.end };
     if (v === 'custom') {
       const d = num(fd.get(name + 'Custom'));
       if (d === '') return null;
@@ -690,7 +693,8 @@
     currentView = parts[0] || 'list';
     try {
       if (!parts.length) return await viewList();
-      if (parts[0] === 'baru') return await viewForm();
+      if (parts[0] === 'baru') return await viewForm(undefined, new URLSearchParams(query));
+      if (parts[0] === 'claim') return await viewClaimSearch();
       if (parts[0] === 'edit' && parts[1]) return await viewForm(decodeURIComponent(parts[1]));
       if (parts[0] === 'job' && parts[1]) return await viewJob(decodeURIComponent(parts[1]), new URLSearchParams(query));
       if (parts[0] === 'ambil' && parts[1]) return await viewPickup(decodeURIComponent(parts[1]));
@@ -872,6 +876,7 @@
         </div>
         <div class="hero-actions">
           <a class="btn primary" href="#/baru">＋ Terima device</a>
+          <a class="btn claim-btn" href="#/claim">🛡 Claim waranti</a>
           <a class="btn owner-only" href="#/laporan">Laporan</a>
         </div>
       </section>
@@ -1061,7 +1066,7 @@
   }
 
   /* ---------------- borang terima / edit ---------------- */
-  async function viewForm(editId) {
+  async function viewForm(editId, params) {
     const job = editId ? await DB.getJob(editId) : null;
     if (editId && !job) throw new Error('Rekod tidak dijumpai: ' + editId);
     const j = job || { customer: {}, device: {}, accessories: [], condition: [] };
@@ -1267,22 +1272,39 @@
         if (!btn) return;
         const src = histJobs.find((x) => x.id === (use ? use.dataset.use : claim.dataset.claim));
         if (!src) return;
-        fillDevice(src);
-        if (claim) {
-          warrantyOf = src.id;
-          const kedai = $('#form [name=intakeWarranty][value=kedai]');
-          if (kedai) kedai.checked = true;
-          const pr = $('#form [name=problem]');
-          if (!/^Claim waranti/.test(pr.value)) pr.value = `Claim waranti (${src.id}): ` + pr.value;
-          $('#form [name=estimate]').value = 0;
-          $('#form [name=deposit]').value = 0;
-          const picSel = $('#form [name=pic]');
-          if (picSel && !picSel.value && src.pic) picSel.value = src.pic;
-          drawBanner();
-          drawHistory();
-          toast('Claim waranti untuk ' + src.id);
-        } else toast('Maklumat device diisi');
+        if (claim) applyClaim(src);
+        else {
+          fillDevice(src);
+          toast('Maklumat device diisi');
+        }
       });
+      function applyClaim(src) {
+        fillDevice(src);
+        warrantyOf = src.id;
+        const kedai = $('#form [name=intakeWarranty][value=kedai]');
+        if (kedai) kedai.checked = true;
+        const pr = $('#form [name=problem]');
+        if (!/^Claim waranti/.test(pr.value)) pr.value = `Claim waranti (${src.id}): ` + pr.value;
+        $('#form [name=estimate]').value = 0;
+        $('#form [name=deposit]').value = 0;
+        const picSel = $('#form [name=pic]');
+        if (picSel && !picSel.value && src.pic) picSel.value = src.pic;
+        drawBanner();
+        drawHistory();
+        toast('Claim waranti untuk ' + src.id);
+      }
+      // Dibuka dari butang 'Buat claim waranti' / halaman Claim waranti
+      const claimId = params && params.get('claim');
+      if (claimId) {
+        const src = await DB.getJob(claimId).catch(() => null);
+        if (src && warrantyActive(src)) {
+          $('#form [name=name]').value = src.customer.name;
+          $('#form [name=phone]').value = src.customer.phone;
+          if (!histJobs.some((x) => x.id === src.id)) histJobs = [src].concat(histJobs);
+          applyClaim(src);
+          lookup();
+        } else if (src) toast(`Waranti ${claimId} telah tamat – terima sebagai repair biasa`);
+      }
     }
 
     const pPad = patternPad($('#patternPad'), R.patternSeq(j.device.passcode), (seq) => showPatternText(seq));
@@ -1523,6 +1545,7 @@
             <p class="small">${esc(warrantyText(job.pickup.warrantyDays, job.pickup.warrantyLabel))}${
                   warrantyUntil(job) ? ` · sehingga ${fmtDate(warrantyUntil(job).toISOString(), false)} ${warrantyActive(job) ? '<span class="w-ok">(aktif)</span>' : '<span class="muted">(tamat)</span>'}` : ''
                 }</p>
+            ${warrantyActive(job) ? `<a class="btn small primary block" href="#/baru?claim=${encodeURIComponent(job.id)}">🛡 Buat claim waranti</a>` : ''}
             <details><summary class="small">Ubah tempoh waranti</summary>
               <form id="wForm" class="w-form">${warrantyField('w', job.pickup.warrantyDays || 0)}<button class="btn small primary" type="submit">Simpan</button></form>
             </details></div>`
@@ -1552,6 +1575,7 @@
         const after = warrantyText(war.days, war.label);
         if (before === after) return toast('Tiada perubahan');
         job.pickup = Object.assign({}, job.pickup, { warrantyDays: war.days || '', warrantyLabel: war.label });
+        delete job.pickup.warrantyEnd;
         job.updatedAt = new Date().toISOString();
         addLog(job, 'edit', [{ f: 'Waranti', from: before, to: after }]);
         try {
@@ -1709,6 +1733,20 @@
   async function viewPickup(id) {
     const job = await DB.getJob(id);
     if (!job) throw new Error('Rekod tidak dijumpai: ' + id);
+    // Claim waranti: sambung waranti asal secara automatik (staff tak perlu kira baki)
+    let cont = null;
+    let contInfo = '';
+    if (job.warrantyOf) {
+      const orig = await DB.getJob(job.warrantyOf).catch(() => null);
+      const end = orig && warrantyUntil(orig);
+      if (end && end.getTime() > Date.now()) {
+        const left = Math.ceil((end.getTime() - Date.now()) / 864e5);
+        cont = { end: end.toISOString(), days: left, label: 'Sambung waranti asal' };
+        contInfo = `<span class="small w-ok cont-info">🛡 Sehingga <strong>${fmtDate(end.toISOString(), false)}</strong> (baki ${left} hari) – sama dengan waranti asal ${esc(orig.id)}. Tak perlu ubah.</span>`;
+      } else if (orig) {
+        contInfo = `<span class="small muted cont-info">Waranti asal ${esc(orig.id)} telah tamat${end ? ' ' + fmtDate(end.toISOString(), false) : ''}.</span>`;
+      }
+    }
     const final = job.estimate !== '' && job.estimate != null ? job.estimate : '';
     const toPay = final !== '' ? Math.max(0, Number(final) - Number(job.deposit || 0)) : '';
 
@@ -1724,7 +1762,7 @@
         </div>
         <div class="grid3">
           <label>Cara bayaran<select name="method">${PAY_METHODS.map((m) => `<option>${m}</option>`).join('')}</select></label>
-          <label>🛡 Waranti${warrantyField('warranty', settings.warrantyDays === '' ? 0 : settings.warrantyDays)}</label>
+          <label>🛡 Waranti${warrantyField('warranty', job.warrantyOf ? 0 : settings.warrantyDays === '' ? 0 : settings.warrantyDays, cont)}${contInfo}</label>
           <label>Diambil oleh<input name="by" value="${esc(job.customer.name)}"></label>
         </div>
         <label>Nota (kerja yang dibuat, part ditukar, dll)<textarea name="note" rows="2"></textarea></label>
@@ -1792,7 +1830,7 @@
       e.preventDefault();
       const fd = new FormData(e.target);
       const errors = [];
-      const war = readWarranty(fd, 'warranty');
+      const war = readWarranty(fd, 'warranty', cont);
       if (!war) errors.push('Bilangan hari waranti');
       let verified = '';
       if (job.pickupCode) {
@@ -1820,6 +1858,7 @@
         method: fd.get('method'),
         warrantyDays: war ? war.days || '' : '',
         warrantyLabel: war ? war.label : '',
+        warrantyEnd: war && war.end ? war.end : null,
         by: fd.get('by').trim(),
         note: fd.get('note').trim(),
         signOut: pad.toDataURL(),
@@ -1830,7 +1869,13 @@
         { f: 'Harga akhir', from: '', to: fmtVal(job.pickup.finalPrice, 'money') },
         { f: 'Dibayar', from: '', to: fmtVal(job.pickup.paid, 'money') + ' (' + job.pickup.method + ')' },
       ];
-      changes.push({ f: 'Waranti', from: '', to: warrantyText(job.pickup.warrantyDays, job.pickup.warrantyLabel) });
+      changes.push({
+        f: 'Waranti',
+        from: '',
+        to: job.pickup.warrantyEnd
+          ? `Sambung waranti asal (sehingga ${fmtDate(job.pickup.warrantyEnd, false)})`
+          : warrantyText(job.pickup.warrantyDays, job.pickup.warrantyLabel),
+      });
       if (verified) changes.push({ f: 'Pengesahan', from: '', to: verified });
       if (job.device && job.device.passcode) {
         // Passcode tidak diperlukan lagi selepas device diserahkan – padam untuk privasi pelanggan
@@ -1852,6 +1897,66 @@
       savedToast(result, 'Serahan direkodkan');
       location.hash = '#/job/' + encodeURIComponent(job.id) + '?serah=1';
     });
+  }
+
+  /* ---------------- claim waranti: cari job lama ---------------- */
+  let claimQ = '';
+
+  async function viewClaimSearch() {
+    app.innerHTML = `
+      <section class="hero hero-sm">
+        <div>
+          <div class="eyebrow">Waranti</div>
+          <h1>🛡 Claim waranti</h1>
+          <p class="muted">Cari customer guna no. telefon, nama atau no. resit lama, kemudian tekan <strong>Claim</strong>.</p>
+        </div>
+      </section>
+      <section class="card">
+        <input type="search" id="cq" placeholder="No. telefon, nama atau no. resit lama…" value="${esc(claimQ)}" autocomplete="off">
+        <div id="cres"><div class="empty">Memuatkan…</div></div>
+      </section>`;
+    const all = await DB.allJobs({ full: CLOUD });
+    if (currentView !== 'claim' || !$('#cres')) return;
+    const done = all.filter((j) => j.status === 'diambil' && j.pickup);
+    const draw = () => {
+      const q = claimQ.trim().toLowerCase();
+      const qd = q.replace(/\D/g, '');
+      let list;
+      if (!q) {
+        list = done.filter(warrantyActive).sort((a, b) => (a.pickup.at < b.pickup.at ? 1 : -1));
+      } else {
+        list = done
+          .filter((j) => {
+            const hay = [j.id, j.customer.name, j.customer.phone, j.device.brand, j.device.model].join(' ').toLowerCase();
+            return hay.includes(q) || (qd.length >= 3 && (normPhone(j.customer.phone).includes(qd) || hay.replace(/\D/g, '').includes(qd)));
+          })
+          .sort((a, b) => (warrantyActive(b) - warrantyActive(a)) || (a.pickup.at < b.pickup.at ? 1 : -1));
+      }
+      $('#cres').innerHTML = `<p class="small muted">${q ? `${list.length} rekod ditemui` : `Semua device yang masih dalam waranti (${list.length})`}</p>` +
+        (list.length
+          ? `<ul class="hist-list claim-list">${list
+              .slice(0, 50)
+              .map((j) =>
+                historyItem(
+                  j,
+                  `<div class="hist-btns">${
+                    warrantyActive(j)
+                      ? `<a class="btn small primary" href="#/baru?claim=${encodeURIComponent(j.id)}">🛡 Claim waranti</a>`
+                      : '<span class="small muted">Waranti tamat – terima sebagai repair biasa</span> <a class="btn small" href="#/baru">＋ Terima</a>'
+                  }</div>`
+                )
+              )
+              .join('')}</ul>`
+          : `<div class="empty">${q ? 'Tiada rekod. Semak ejaan, atau cari guna no. telefon.' : 'Tiada device dalam tempoh waranti.'}</div>`);
+    };
+    let t;
+    $('#cq').addEventListener('input', (e) => {
+      claimQ = e.target.value;
+      clearTimeout(t);
+      t = setTimeout(draw, 200);
+    });
+    draw();
+    $('#cq').focus();
   }
 
   /* ---------------- kerja saya (technician) ---------------- */
@@ -2698,7 +2803,7 @@
   /* ---------------- start ---------------- */
   /* ---------- semakan versi: pastikan semua telefon guna versi terbaru ----------
      Bila kemaskini app: naikkan APP_VERSION, version.json dan ?v= dalam index.html/resit.html */
-  const APP_VERSION = '21';
+  const APP_VERSION = '22';
 
   async function latestVersion() {
     try {
