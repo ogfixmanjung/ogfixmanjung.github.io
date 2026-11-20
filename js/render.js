@@ -158,7 +158,7 @@
 
     let pickup = '';
     if (pk) {
-      const warrantyUntil = pk.warrantyDays ? fmtDate(addDays(pk.at, pk.warrantyDays), false) : '';
+      const warrantyUntil = pk.warrantyEnd ? fmtDate(pk.warrantyEnd, false) : pk.warrantyDays ? fmtDate(addDays(pk.at, pk.warrantyDays), false) : '';
       pickup = `<section><h3>Penyerahan Semula</h3>
         ${row('Tarikh diambil', fmtDate(pk.at))}
         ${row('Diambil oleh', esc(pk.by || c.name))}
@@ -273,6 +273,7 @@
           paid: job.pickup.paid,
           method: job.pickup.method,
           warrantyDays: job.pickup.warrantyDays,
+          warrantyEnd: job.pickup.warrantyEnd || null,
           warrantyLabel: job.pickup.warrantyLabel || '',
           note: job.pickup.note,
           signed: !!job.pickup.signOut,

@@ -540,3 +540,11 @@ code { background: #f1f1ec; border-radius: 4px; padding: 0 4px; font-size: .92em
 .pv-nav[hidden] { display: none; }
 .photos .ph-open { display: block; cursor: zoom-in; }
 #photoPreview .ph img { cursor: zoom-in; }
+
+/* ---------- claim waranti ---------- */
+.claim-btn { border-color: #86efac; color: #166534; background: #f0fdf4; }
+.claim-btn:hover { border-color: #22c55e; }
+.cont-info { display: block; margin-top: 6px; font-weight: 600; line-height: 1.4; }
+.claim-list > li { padding: 12px 0; }
+#cq { margin-bottom: 10px; }
+.card .btn.block + details { margin-top: 10px; }
