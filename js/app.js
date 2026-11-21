@@ -378,6 +378,13 @@
     return saveJob(job);
   }
 
+  // Salinan job dari senarai yang sudah dipaparkan: dapat terus tanpa await,
+  // supaya WhatsApp boleh dibuka dalam klik itu sendiri (iPhone sekat selepas await).
+  function cachedCopy(map, id) {
+    const j = map && map.get(id);
+    return j ? JSON.parse(JSON.stringify(j)) : null;
+  }
+
   /* ---------- minta review Google ---------- */
   async function askReview(job) {
     let msg = String(settings.reviewMsg || DEFAULT_SETTINGS.reviewMsg)
@@ -895,11 +902,13 @@
     const needFull = () =>
       CLOUD && !DB.isFullLoaded() && (listFilter.q.trim() !== '' || listFilter.status !== 'aktif');
 
+    let listMap = new Map();
     const refresh = async () => {
       const full = needFull();
       if (full) $('#list').innerHTML = '<div class="empty">Memuatkan semua rekod…</div>';
       const jobs = await DB.allJobs({ full });
       if (currentView !== 'list' || !$('#list')) return;
+      listMap = new Map(jobs.map((j) => [j.id, j]));
       draw(jobs);
     };
     listRefresh = refresh;
@@ -1055,7 +1064,7 @@
       e.preventDefault();
       b.disabled = true;
       try {
-        const job = await DB.getJob(b.dataset.remind);
+        const job = cachedCopy(listMap, b.dataset.remind) || (await DB.getJob(b.dataset.remind));
         await remindCustomer(job);
       } catch (err) {
         alert('Gagal rekod peringatan: ' + errMsg(err));
@@ -1646,6 +1655,8 @@
     const dev = [job.device.brand, job.device.model].filter(Boolean).join(' ');
 
     $('#btnWa').addEventListener('click', () => {
+      // Ikut status: job Siap -> mesej Siap; selain itu -> resit penerimaan
+      if (job.status === 'siap') return sendWa(statusWaMsg(job, 'siap', ''));
       sendWa(
         `${greet(job.customer.name)}\n\nTerima kasih kerana memilih ${settings.name}. Device anda telah kami terima.\n\n` +
           `No. Resit: *${job.id}*\nDevice: ${dev}\nMasalah: ${job.problem}\n` +
@@ -1713,15 +1724,17 @@
         job.updatedAt = now;
         // Tukar lokasi sahaja: tidak masuk timeline pelanggan & tiada WhatsApp
         if (statusOrNote) job.history = (job.history || []).concat([{ status, at: now, note, by: me() }]);
+        // Buka WhatsApp SEBELUM simpan: browser (terutama iPhone) menyekat tetingkap
+        // yang dibuka selepas proses async, jadi mesej tidak keluar langsung.
+        if (statusOrNote && fd.get('notify')) {
+          sendWa(statusWaMsg(job, status, note));
+        }
         let result;
         try {
           result = await saveJob(job);
         } catch (err) {
           alert('Gagal simpan: ' + errMsg(err));
           return;
-        }
-        if (statusOrNote && fd.get('notify')) {
-          sendWa(statusWaMsg(job, status, note));
         }
         savedToast(result, 'Status dikemaskini');
         route();
@@ -2063,9 +2076,11 @@
           : '');
     };
 
+    let mineMap = new Map();
     const refresh = async () => {
       const jobs = await DB.allJobs();
       if (currentView !== 'saya' || !$('#mineBody')) return;
+      mineMap = new Map(jobs.map((j) => [j.id, j]));
       draw(jobs);
     };
     listRefresh = refresh;
@@ -2087,7 +2102,7 @@
         return refresh();
       }
       const status = act.dataset.act;
-      const j = await DB.getJob(act.dataset.id);
+      const j = cachedCopy(mineMap, act.dataset.id) || (await DB.getJob(act.dataset.id));
       if (!j) return;
       // Siap: maklumkan pelanggan terus (WhatsApp dibuka dahulu supaya tidak disekat browser)
       if (status === 'siap') {
@@ -2803,7 +2818,7 @@
   /* ---------------- start ---------------- */
   /* ---------- semakan versi: pastikan semua telefon guna versi terbaru ----------
      Bila kemaskini app: naikkan APP_VERSION, version.json dan ?v= dalam index.html/resit.html */
-  const APP_VERSION = '22';
+  const APP_VERSION = '23';
 
   async function latestVersion() {
     try {
